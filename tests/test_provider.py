@@ -143,6 +143,20 @@ def test_prefetch_cache_is_scoped_by_principal(tmp_path: Path) -> None:
     provider.shutdown()
 
 
+def test_explicit_session_id_is_honored_before_session_switch(tmp_path: Path) -> None:
+    provider = build_provider(tmp_path, platform="cli", session_id="session-1")
+    provider.sync_turn(
+        "Remember that session two owns the release checklist.",
+        "Stored.",
+        session_id="session-2",
+    )
+    recall_session_2 = provider.prefetch("release checklist", session_id="session-2")
+    recall_session_1 = provider.prefetch("release checklist", session_id="session-1")
+    assert "session two owns the release checklist" in recall_session_2
+    assert "session two owns the release checklist" not in recall_session_1
+    provider.shutdown()
+
+
 def test_hermes_home_env_can_define_memory_workspace(tmp_path: Path) -> None:
     write_env(tmp_path / ".env", {"LAYERED_MEMORY_WORKSPACE": "workspace-home-env"})
 

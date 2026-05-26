@@ -96,13 +96,13 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         return context
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        namespace = self._active_namespace()
+        namespace = self._active_namespace(session_id=session_id or self._namespace.session_id)
         future = self._executor.submit(self._assemble_recall, query, namespace)
         self._pending.append(future)
 
     def sync_turn(self, user: str, assistant: str, *, session_id: str = "") -> None:
         store = self._require_store()
-        namespace = self._active_namespace()
+        namespace = self._active_namespace(session_id=session_id or self._namespace.session_id)
         episodic_id = store.insert_memory(
             profile_id=namespace.profile_id,
             workspace_id=namespace.workspace_id,

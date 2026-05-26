@@ -1,0 +1,12 @@
+name: layered_lancedb_sqlite
+kind: exclusive
+description: Layered SQLite + LanceDB memory provider with workspace, user, and session isolation.
+hooks:
+  - prefetch
+  - queue_prefetch
+  - sync_turn
+  - on_session_switch
+  - on_session_end
+  - on_pre_compress
+  - on_memory_write
+  - shutdown

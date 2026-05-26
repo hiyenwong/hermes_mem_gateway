@@ -26,6 +26,11 @@ def build_provider(tmp_path: Path, *, session_id: str = "session-1", **kwargs) -
     return provider
 
 
+def write_env(path: Path, values: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+
+
 def test_gateway_user_scope_blocks_unstable_identity_and_isolates_user_semantic(tmp_path: Path) -> None:
     provider = build_provider(tmp_path, platform="gateway", user_id="user-1")
     provider.sync_turn("Remember that I prefer dark roast coffee beans.", "Noted.")
@@ -136,3 +141,49 @@ def test_prefetch_cache_is_scoped_by_principal(tmp_path: Path) -> None:
     recall_user_2 = provider.prefetch("coffee")
     assert "dark roast coffee" not in recall_user_2
     provider.shutdown()
+
+
+def test_hermes_home_env_can_define_memory_workspace(tmp_path: Path) -> None:
+    write_env(tmp_path / ".env", {"LAYERED_MEMORY_WORKSPACE": "workspace-home-env"})
+
+    provider = LayeredLanceDBSQLiteMemoryProvider()
+    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", agent_workspace="")
+    try:
+        assert provider._namespace.workspace_id == "workspace-home-env"
+    finally:
+        provider.shutdown()
+
+
+def test_profile_env_overrides_hermes_home_env(tmp_path: Path) -> None:
+    write_env(tmp_path / ".env", {"LAYERED_MEMORY_WORKSPACE": "workspace-home-env"})
+    write_env(
+        tmp_path / "profiles" / "coder" / ".env",
+        {"LAYERED_MEMORY_WORKSPACE": "workspace-profile-env"},
+    )
+
+    provider = LayeredLanceDBSQLiteMemoryProvider()
+    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", agent_workspace="")
+    try:
+        assert provider._namespace.workspace_id == "workspace-profile-env"
+    finally:
+        provider.shutdown()
+
+
+def test_runtime_agent_workspace_overrides_env_workspace(tmp_path: Path) -> None:
+    write_env(tmp_path / ".env", {"LAYERED_MEMORY_WORKSPACE": "workspace-home-env"})
+    write_env(
+        tmp_path / "profiles" / "coder" / ".env",
+        {"LAYERED_MEMORY_WORKSPACE": "workspace-profile-env"},
+    )
+
+    provider = LayeredLanceDBSQLiteMemoryProvider()
+    provider.initialize(
+        "session-1",
+        hermes_home=str(tmp_path),
+        agent_identity="coder",
+        agent_workspace="workspace-runtime",
+    )
+    try:
+        assert provider._namespace.workspace_id == "workspace-runtime"
+    finally:
+        provider.shutdown()

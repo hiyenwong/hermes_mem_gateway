@@ -9,6 +9,19 @@ import yaml
 
 CONFIG_DIRNAME = "memory-providers/layered_lancedb_sqlite"
 CONFIG_FILENAME = "config.yaml"
+ENV_FILENAME = ".env"
+PROFILE_ENV_DIRNAME = "profiles"
+
+ENV_KEY_MAP = {
+    "LAYERED_MEMORY_WORKSPACE": "memory_workspace",
+    "LAYERED_MEMORY_PROFILE_ID": "profile_id",
+    "LAYERED_MEMORY_ALLOW_NON_PRIMARY_DURABLE_WRITES": "allow_non_primary_durable_writes",
+    "LAYERED_MEMORY_PROMOTION_MIN_SCORE": "promotion_min_score",
+    "LAYERED_MEMORY_RECALL_LIMIT_PER_LAYER": "recall_limit_per_layer",
+    "LAYERED_MEMORY_EMBEDDING_DIMENSIONS": "embedding_dimensions",
+    "LAYERED_MEMORY_GATEWAY_PLATFORMS": "gateway_platforms",
+    "LAYERED_MEMORY_STORAGE_ROOT": "storage_root",
+}
 
 
 @dataclass
@@ -43,6 +56,54 @@ def config_path(hermes_home: str) -> Path:
     return Path(hermes_home) / CONFIG_DIRNAME / CONFIG_FILENAME
 
 
+def hermes_env_path(hermes_home: str) -> Path:
+    return Path(hermes_home) / ENV_FILENAME
+
+
+def profile_env_path(hermes_home: str, profile_id: str) -> Path:
+    return Path(hermes_home) / PROFILE_ENV_DIRNAME / profile_id / ENV_FILENAME
+
+
+def parse_env_file(path: Path) -> Dict[str, str]:
+    if not path.exists():
+        return {}
+    values: Dict[str, str] = {}
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+
+def _coerce_env_value(key: str, value: str) -> Any:
+    if key == "allow_non_primary_durable_writes":
+        return coerce_bool(value)
+    if key in {"promotion_min_score"}:
+        return float(value)
+    if key in {"recall_limit_per_layer", "embedding_dimensions"}:
+        return int(value)
+    if key == "gateway_platforms":
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return value
+
+
+def load_env_config(hermes_home: str, profile_id: str = "") -> ProviderConfig:
+    merged: Dict[str, Any] = {}
+    for path in [hermes_env_path(hermes_home), profile_env_path(hermes_home, profile_id) if profile_id else None]:
+        if path is None:
+            continue
+        raw = parse_env_file(path)
+        for env_key, config_key in ENV_KEY_MAP.items():
+            if env_key in raw:
+                merged[config_key] = _coerce_env_value(config_key, raw[env_key])
+    return ProviderConfig.from_mapping(merged)
+
+
 def load_config(hermes_home: str) -> ProviderConfig:
     path = config_path(hermes_home)
     if not path.exists():
@@ -74,6 +135,8 @@ def merge_overrides(config: ProviderConfig, values: Iterable[tuple[str, Any]]) -
             continue
         if isinstance(data[key], bool):
             data[key] = coerce_bool(value)
+        elif isinstance(data[key], list) and isinstance(value, str):
+            data[key] = [item.strip() for item in value.split(",") if item.strip()]
         else:
             data[key] = value
     return ProviderConfig.from_mapping(data)

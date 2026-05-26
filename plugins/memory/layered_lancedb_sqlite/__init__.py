@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from .config import ProviderConfig, load_config, merge_overrides, save_config as persist_config
+from .config import ProviderConfig, load_config, load_env_config, merge_overrides, save_config as persist_config
 from .governance import classify_turn, find_superseded, fingerprint_text, rank_record, select_durable_layer
 from .namespace import SHARED_PRINCIPAL, NamespaceContext, resolve_namespace, runtime_from_kwargs
 from .storage import SQLiteStore
@@ -57,11 +57,14 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
     def initialize(self, session_id: str, **kwargs) -> None:
         hermes_home = str(kwargs.get("hermes_home", ""))
         self._hermes_home = hermes_home
+        base_config = load_config(hermes_home)
+        profile_hint = str(kwargs.get("agent_identity") or base_config.profile_id or "default")
+        env_config = load_env_config(hermes_home, profile_hint)
         self._config = merge_overrides(
-            load_config(hermes_home),
+            merge_overrides(base_config, env_config.to_mapping().items()),
             [
-                ("profile_id", kwargs.get("agent_identity")),
-                ("memory_workspace", kwargs.get("agent_workspace")),
+                ("profile_id", kwargs.get("agent_identity") or None),
+                ("memory_workspace", kwargs.get("agent_workspace") or None),
             ],
         )
         self._runtime = runtime_from_kwargs(session_id, **kwargs)

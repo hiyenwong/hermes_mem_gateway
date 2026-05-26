@@ -69,6 +69,8 @@ If `lancedb` is unavailable, the provider falls back to a local stub index while
 Saved at:
 
 - `<hermes_home>/memory-providers/layered_lancedb_sqlite/config.yaml`
+- `<hermes_home>/.env`
+- `<hermes_home>/profiles/<profile_id>/.env`
 
 Primary options:
 
@@ -78,6 +80,27 @@ Primary options:
 - `promotion_min_score`
 - `gateway_platforms`
 - `embedding_dimensions`
+
+Environment variable overrides use the `LAYERED_MEMORY_` prefix, for example:
+
+```dotenv
+LAYERED_MEMORY_WORKSPACE=project-a
+LAYERED_MEMORY_PROFILE_ID=coder
+LAYERED_MEMORY_PROMOTION_MIN_SCORE=0.85
+```
+
+Supported `.env` locations:
+
+- `<hermes_home>/.env`
+- `<hermes_home>/profiles/<profile_id>/.env`
+
+Configuration precedence is:
+
+1. runtime `agent_workspace` / `agent_identity`
+2. profile `.env`
+3. `<hermes_home>/.env`
+4. `config.yaml`
+5. built-in defaults
 
 ## Development
 

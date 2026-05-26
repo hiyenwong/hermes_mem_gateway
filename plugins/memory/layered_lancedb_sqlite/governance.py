@@ -10,6 +10,10 @@ from .namespace import NamespaceContext
 
 EXPLICIT_MEMORY_RE = re.compile(r"\b(remember|memorize|my preference is|i prefer|my name is|call me)\b", re.I)
 TRANSIENT_RE = re.compile(r"\b(today|tomorrow|right now|currently|temporary|for this session)\b", re.I)
+SHARED_MEMORY_RE = re.compile(
+    r"\b(remember this as shared|save this to shared memory|share this memory|保存为共享记忆|记到共享记忆里)\b",
+    re.I,
+)
 
 
 @dataclass
@@ -52,6 +56,14 @@ def classify_turn(user_text: str, assistant_text: str) -> list[CandidateMemory]:
             )
         )
     return candidates
+
+
+def resolve_shared_intent(user_text: str, metadata_shared_intent: bool | None) -> tuple[bool, str]:
+    if metadata_shared_intent is not None:
+        return metadata_shared_intent, "metadata"
+    if SHARED_MEMORY_RE.search(normalize_sentence(user_text)):
+        return True, "natural_language"
+    return False, "none"
 
 
 def select_durable_layer(candidate: CandidateMemory, namespace: NamespaceContext) -> str | None:

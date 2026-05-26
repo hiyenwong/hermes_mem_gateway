@@ -5,8 +5,15 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from .config import ProviderConfig, load_config, load_env_config, merge_overrides, save_config as persist_config
-from .governance import classify_turn, find_superseded, fingerprint_text, rank_record, select_durable_layer
+from .config import ProviderConfig, load_config, load_env_overrides, merge_overrides, save_config as persist_config
+from .governance import (
+    classify_turn,
+    find_superseded,
+    fingerprint_text,
+    rank_record,
+    resolve_shared_intent,
+    select_durable_layer,
+)
 from .namespace import SHARED_PRINCIPAL, NamespaceContext, resolve_namespace, runtime_from_kwargs
 from .storage import SQLiteStore
 
@@ -47,6 +54,8 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             {"key": "memory_workspace", "description": "Workspace namespace for durable memory", "default": "default"},
             {"key": "profile_id", "description": "Profile identifier for storage partitioning", "default": "default"},
             {"key": "allow_non_primary_durable_writes", "description": "Allow non-primary contexts to write durable memory", "default": False, "choices": [True, False]},
+            {"key": "shared_writer_emails", "description": "Allowlisted gateway emails that may write shared memory", "default": []},
+            {"key": "shared_explicit_required", "description": "Require explicit shared intent for shared writes", "default": True, "choices": [True, False]},
             {"key": "promotion_min_score", "description": "Minimum confidence for durable promotion", "default": 0.8},
             {"key": "embedding_dimensions", "description": "Semantic embedding dimensions", "default": 64},
         ]
@@ -59,9 +68,9 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         self._hermes_home = hermes_home
         base_config = load_config(hermes_home)
         profile_hint = str(kwargs.get("agent_identity") or base_config.profile_id or "default")
-        env_config = load_env_config(hermes_home, profile_hint)
+        env_overrides = load_env_overrides(hermes_home, profile_hint)
         self._config = merge_overrides(
-            merge_overrides(base_config, env_config.to_mapping().items()),
+            merge_overrides(base_config, env_overrides.items()),
             [
                 ("profile_id", kwargs.get("agent_identity") or None),
                 ("memory_workspace", kwargs.get("agent_workspace") or None),
@@ -135,11 +144,18 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             "agent_workspace": kwargs.get("agent_workspace", self._runtime.agent_workspace),
             "parent_session_id": parent_session_id or self._runtime.parent_session_id,
             "user_id": kwargs.get("user_id", self._runtime.user_id),
+            "user_email": kwargs.get("user_email", self._runtime.user_email),
+            "user_name": kwargs.get("user_name", self._runtime.user_name),
+            "request_metadata": kwargs.get("request_metadata", self._runtime.request_metadata),
+            "metadata": kwargs.get("metadata", self._runtime.request_metadata),
+            "headers": kwargs.get("headers", None),
+            "request_headers": kwargs.get("request_headers", None),
+            "openwebui_headers": kwargs.get("openwebui_headers", None),
         }
         self._runtime = runtime_from_kwargs(new_session_id, **merged)
         self._namespace = resolve_namespace(self._config, self._runtime)
         if reset:
-            self._prefetch_cache = {key: value for key, value in self._prefetch_cache.items() if key[0] != new_session_id}
+            self._prefetch_cache = {key: value for key, value in self._prefetch_cache.items() if key[2] != new_session_id}
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         if not messages:
@@ -173,7 +189,9 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
     ) -> None:
         if action == "remove":
             return
-        target_layer = "semantic_user" if target == "user" and self._namespace.durable_user_allowed else "semantic_shared"
+        target_layer = self._memory_write_target_layer(target, content)
+        if target_layer is None:
+            return
         self._pending.append(
             self._executor.submit(
                 self._mirror_memory,
@@ -211,6 +229,9 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
                 agent_workspace=runtime.agent_workspace,
                 parent_session_id=runtime.parent_session_id,
                 user_id=runtime.user_id,
+                user_email=runtime.user_email,
+                user_name=runtime.user_name,
+                request_metadata=runtime.request_metadata,
             )
             return resolve_namespace(self._config, runtime)
         return self._namespace
@@ -218,6 +239,9 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
     def _assemble_recall(self, query: str, namespace: NamespaceContext) -> str:
         store = self._require_store()
         blocks: list[str] = []
+        gateway_context = self._gateway_prompt_context(namespace)
+        if gateway_context:
+            blocks.append(gateway_context)
         episodic = store.search_exact(
             profile_id=namespace.profile_id,
             workspace_id=namespace.workspace_id,
@@ -266,8 +290,11 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
 
     def _consolidate_turn(self, namespace: NamespaceContext, user: str, assistant: str) -> None:
         store = self._require_store()
+        shared_requested, shared_source = resolve_shared_intent(user, namespace.metadata_shared_intent)
+        shared_authorized = self._shared_write_allowed(namespace, shared_requested)
+        base_metadata = self._policy_metadata(namespace, shared_requested, shared_source, shared_authorized)
         for candidate in classify_turn(user, assistant):
-            layer = select_durable_layer(candidate, namespace)
+            layer = "semantic_shared" if shared_authorized else select_durable_layer(candidate, namespace)
             if layer is None:
                 continue
             if candidate.confidence < self._config.promotion_min_score:
@@ -295,7 +322,11 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
                 fingerprint=candidate.fingerprint,
                 source="promotion",
                 importance=candidate.confidence,
-                metadata={"platform": namespace.platform, "agent_context": namespace.agent_context},
+                metadata={
+                    "platform": namespace.platform,
+                    "agent_context": namespace.agent_context,
+                    **base_metadata,
+                },
                 supersedes_id=supersedes_id,
             )
             store.add_provenance(
@@ -305,6 +336,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
                 platform=namespace.platform,
                 agent_context=namespace.agent_context,
                 session_id=namespace.session_id,
+                metadata=base_metadata,
             )
             if candidate.confidence < 0.9 and layer.startswith("semantic"):
                 score = rank_record(candidate.confidence, reinforcement_count=0, access_count=0, archived=False)
@@ -326,6 +358,9 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         if target_layer == "semantic_shared" and not namespace.durable_shared_allowed:
             return
         store = self._require_store()
+        shared_requested, shared_source = resolve_shared_intent(content, namespace.metadata_shared_intent)
+        shared_authorized = self._shared_write_allowed(namespace, shared_requested)
+        policy_metadata = self._policy_metadata(namespace, shared_requested, shared_source, shared_authorized)
         memory_id = store.insert_memory(
             profile_id=namespace.profile_id,
             workspace_id=namespace.workspace_id,
@@ -337,7 +372,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             fingerprint=fingerprint_text(content),
             source=source,
             importance=0.95,
-            metadata=metadata or {},
+            metadata={**(metadata or {}), **policy_metadata},
         )
         store.add_provenance(
             memory_id,
@@ -346,7 +381,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             platform=namespace.platform,
             agent_context=namespace.agent_context,
             session_id=namespace.session_id,
-            metadata=metadata or {},
+            metadata={**(metadata or {}), **policy_metadata},
         )
 
     def _require_store(self) -> SQLiteStore:
@@ -358,6 +393,71 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         for future in list(self._pending):
             future.result(timeout=timeout)
         self._pending.clear()
+
+    def _shared_write_allowed(self, namespace: NamespaceContext, shared_requested: bool) -> bool:
+        if not namespace.is_gateway:
+            return namespace.durable_shared_allowed and (shared_requested or not self._config.shared_explicit_required)
+        if not namespace.user_email:
+            return False
+        if namespace.user_email not in set(self._config.shared_writer_emails):
+            return False
+        if self._config.shared_explicit_required and not shared_requested:
+            return False
+        return namespace.durable_shared_allowed
+
+    def _policy_metadata(
+        self,
+        namespace: NamespaceContext,
+        shared_requested: bool,
+        shared_source: str,
+        shared_authorized: bool,
+    ) -> dict[str, Any]:
+        return {
+            "gateway_user": namespace.is_gateway,
+            "principal_source": namespace.principal_source,
+            "resolved_user_email": namespace.user_email,
+            "resolved_user_id": namespace.user_id,
+            "resolved_user_name": namespace.user_name,
+            "shared_requested": shared_requested,
+            "shared_request_source": shared_source,
+            "shared_authorized": shared_authorized,
+            "privacy_scope": "private" if namespace.is_gateway else "shared",
+        }
+
+    def _gateway_prompt_context(self, namespace: NamespaceContext) -> str:
+        if not namespace.is_gateway or not (namespace.user_name or namespace.user_email or namespace.user_id):
+            return ""
+        shared_requested, shared_source = resolve_shared_intent("", namespace.metadata_shared_intent)
+        shared_authorized = self._shared_write_allowed(namespace, shared_requested)
+        lines = [
+            "<user-context>",
+            "Gateway user context:",
+            "- authenticated_user: true",
+        ]
+        if namespace.user_name:
+            lines.append(f"- display_name: {namespace.user_name}")
+        lines.extend(
+            [
+                "- memory_scope: private",
+                f"- shared_write_requested: {'true' if shared_requested else 'false'}",
+                f"- shared_write_allowed: {'true' if shared_authorized else 'false'}",
+            ]
+        )
+        if shared_requested:
+            lines.append(f"- shared_request_source: {shared_source}")
+        lines.append("</user-context>")
+        return "\n".join(lines)
+
+    def _memory_write_target_layer(self, target: str, content: str) -> str | None:
+        namespace = self._namespace
+        shared_requested, _ = resolve_shared_intent(content, namespace.metadata_shared_intent)
+        if namespace.is_gateway:
+            if self._shared_write_allowed(namespace, shared_requested):
+                return "semantic_shared"
+            return "semantic_user" if namespace.durable_user_allowed else None
+        if target == "user" and namespace.durable_user_allowed:
+            return "semantic_user"
+        return "semantic_shared"
 
 
 def register(ctx=None) -> LayeredLanceDBSQLiteMemoryProvider:

@@ -16,6 +16,8 @@ ENV_KEY_MAP = {
     "LAYERED_MEMORY_WORKSPACE": "memory_workspace",
     "LAYERED_MEMORY_PROFILE_ID": "profile_id",
     "LAYERED_MEMORY_ALLOW_NON_PRIMARY_DURABLE_WRITES": "allow_non_primary_durable_writes",
+    "LAYERED_MEMORY_SHARED_WRITER_EMAILS": "shared_writer_emails",
+    "LAYERED_MEMORY_SHARED_EXPLICIT_REQUIRED": "shared_explicit_required",
     "LAYERED_MEMORY_PROMOTION_MIN_SCORE": "promotion_min_score",
     "LAYERED_MEMORY_RECALL_LIMIT_PER_LAYER": "recall_limit_per_layer",
     "LAYERED_MEMORY_EMBEDDING_DIMENSIONS": "embedding_dimensions",
@@ -29,6 +31,8 @@ class ProviderConfig:
     memory_workspace: str = "default"
     profile_id: str = "default"
     allow_non_primary_durable_writes: bool = False
+    shared_writer_emails: list[str] = field(default_factory=list)
+    shared_explicit_required: bool = True
     promotion_min_score: float = 0.8
     recall_limit_per_layer: int = 4
     embedding_dimensions: int = 64
@@ -83,16 +87,18 @@ def parse_env_file(path: Path) -> Dict[str, str]:
 def _coerce_env_value(key: str, value: str) -> Any:
     if key == "allow_non_primary_durable_writes":
         return coerce_bool(value)
+    if key == "shared_explicit_required":
+        return coerce_bool(value)
     if key in {"promotion_min_score"}:
         return float(value)
     if key in {"recall_limit_per_layer", "embedding_dimensions"}:
         return int(value)
-    if key == "gateway_platforms":
+    if key in {"gateway_platforms", "shared_writer_emails"}:
         return [item.strip() for item in value.split(",") if item.strip()]
     return value
 
 
-def load_env_config(hermes_home: str, profile_id: str = "") -> ProviderConfig:
+def load_env_overrides(hermes_home: str, profile_id: str = "") -> Dict[str, Any]:
     merged: Dict[str, Any] = {}
     for path in [hermes_env_path(hermes_home), profile_env_path(hermes_home, profile_id) if profile_id else None]:
         if path is None:
@@ -101,6 +107,11 @@ def load_env_config(hermes_home: str, profile_id: str = "") -> ProviderConfig:
         for env_key, config_key in ENV_KEY_MAP.items():
             if env_key in raw:
                 merged[config_key] = _coerce_env_value(config_key, raw[env_key])
+    return merged
+
+
+def load_env_config(hermes_home: str, profile_id: str = "") -> ProviderConfig:
+    merged = load_env_overrides(hermes_home, profile_id)
     return ProviderConfig.from_mapping(merged)
 
 

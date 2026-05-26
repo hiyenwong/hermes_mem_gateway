@@ -6,16 +6,21 @@ from pathlib import Path
 from plugins.memory.layered_lancedb_sqlite import LayeredLanceDBSQLiteMemoryProvider
 
 
-def build_provider(tmp_path: Path, *, session_id: str = "session-1", **kwargs) -> LayeredLanceDBSQLiteMemoryProvider:
+def build_provider(
+    tmp_path: Path,
+    *,
+    session_id: str = "session-1",
+    config_overrides: dict[str, object] | None = None,
+    **kwargs,
+) -> LayeredLanceDBSQLiteMemoryProvider:
     provider = LayeredLanceDBSQLiteMemoryProvider()
-    provider.save_config(
-        {
-            "memory_workspace": "workspace-a",
-            "profile_id": "coder",
-            "embedding_dimensions": 32,
-        },
-        str(tmp_path),
-    )
+    config = {
+        "memory_workspace": "workspace-a",
+        "profile_id": "coder",
+        "embedding_dimensions": 32,
+    }
+    config.update(config_overrides or {})
+    provider.save_config(config, str(tmp_path))
     provider.initialize(
         session_id,
         hermes_home=str(tmp_path),
@@ -201,3 +206,116 @@ def test_runtime_agent_workspace_overrides_env_workspace(tmp_path: Path) -> None
         assert provider._namespace.workspace_id == "workspace-runtime"
     finally:
         provider.shutdown()
+
+
+def test_openwebui_email_header_becomes_private_principal(tmp_path: Path) -> None:
+    provider = build_provider(
+        tmp_path,
+        platform="gateway",
+        headers={
+            "X-OpenWebUI-User-Email": "doris@example.com",
+            "X-OpenWebUI-User-Name": "Doris",
+        },
+    )
+    provider.sync_turn("Remember that I prefer jasmine tea.", "Stored.")
+    provider.shutdown()
+
+    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    with sqlite3.connect(sqlite_path) as conn:
+        rows = conn.execute(
+            "SELECT principal_id, layer FROM memories WHERE layer = 'semantic_user'"
+        ).fetchall()
+    assert rows == [("doris@example.com", "semantic_user")]
+
+
+def test_openwebui_user_id_fallback_does_not_use_display_name(tmp_path: Path) -> None:
+    provider = build_provider(
+        tmp_path,
+        platform="gateway",
+        headers={
+            "X-OpenWebUI-User-Id": "owui-user-42",
+            "X-OpenWebUI-User-Name": "Doris",
+        },
+    )
+    provider.sync_turn("Remember that I prefer oolong tea.", "Stored.")
+    provider.shutdown()
+
+    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    with sqlite3.connect(sqlite_path) as conn:
+        rows = conn.execute(
+            "SELECT principal_id FROM memories WHERE layer = 'semantic_user'"
+        ).fetchall()
+    assert rows == [("owui-user-42",)]
+    assert all(row[0] != "Doris" for row in rows)
+
+
+def test_gateway_shared_request_without_allowlist_stays_private(tmp_path: Path) -> None:
+    provider = build_provider(
+        tmp_path,
+        platform="gateway",
+        headers={"X-OpenWebUI-User-Email": "user@example.com"},
+        request_metadata={"shared_memory": True},
+    )
+    provider.sync_turn("Remember this as shared: the project uses uv.", "Stored.")
+    provider.shutdown()
+
+    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    with sqlite3.connect(sqlite_path) as conn:
+        rows = conn.execute(
+            "SELECT principal_id, layer FROM memories WHERE layer LIKE 'semantic_%' ORDER BY layer"
+        ).fetchall()
+    assert rows == [("user@example.com", "semantic_user")]
+
+
+def test_allowlisted_gateway_user_can_write_shared_via_metadata(tmp_path: Path) -> None:
+    provider = build_provider(
+        tmp_path,
+        platform="gateway",
+        headers={
+            "X-OpenWebUI-User-Email": "admin@example.com",
+            "X-OpenWebUI-User-Name": "Admin Doris",
+        },
+        request_metadata={"shared_memory": True},
+        config_overrides={"shared_writer_emails": ["admin@example.com"]},
+    )
+    provider.sync_turn("Remember that the shared deployment checklist lives in Notion.", "Stored.")
+    recall = provider.prefetch("deployment checklist")
+    provider.shutdown()
+
+    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    with sqlite3.connect(sqlite_path) as conn:
+        memory_rows = conn.execute(
+            "SELECT principal_id, layer, metadata_json FROM memories WHERE layer = 'semantic_shared'"
+        ).fetchall()
+        provenance_rows = conn.execute(
+            "SELECT metadata_json FROM provenance WHERE source_type = 'promotion'"
+        ).fetchall()
+    assert len(memory_rows) == 1
+    assert memory_rows[0][0] == "__shared__"
+    assert '"shared_authorized": true' in memory_rows[0][2]
+    assert provenance_rows and '"shared_request_source": "metadata"' in provenance_rows[0][0]
+    assert "display_name: Admin Doris" in recall
+    assert "X-OpenWebUI-User-Email" not in recall
+
+
+def test_metadata_shared_intent_overrides_natural_language_shared_request(tmp_path: Path) -> None:
+    provider = build_provider(
+        tmp_path,
+        platform="gateway",
+        headers={"X-OpenWebUI-User-Email": "admin@example.com"},
+        request_metadata={"shared_memory": False},
+        config_overrides={"shared_writer_emails": ["admin@example.com"]},
+    )
+    provider.sync_turn("Remember this as shared: the staging API base URL is https://api.internal.example.", "Stored.")
+    provider.shutdown()
+
+    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    with sqlite3.connect(sqlite_path) as conn:
+        rows = conn.execute(
+            "SELECT principal_id, layer, metadata_json FROM memories WHERE layer LIKE 'semantic_%'"
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "admin@example.com"
+    assert rows[0][1] == "semantic_user"
+    assert '"shared_request_source": "metadata"' in rows[0][2]
+    assert '"shared_authorized": false' in rows[0][2]

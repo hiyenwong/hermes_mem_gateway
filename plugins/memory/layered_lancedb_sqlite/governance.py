@@ -69,7 +69,10 @@ def resolve_shared_intent(user_text: str, metadata_shared_intent: bool | None) -
 def select_durable_layer(candidate: CandidateMemory, namespace: NamespaceContext) -> str | None:
     if candidate.confidence < 0.8:
         return None
-    if namespace.is_gateway and namespace.durable_user_allowed:
+    # dslm_agent hard block: Gateway users MUST NOT write semantic_user ever
+    if namespace.is_gateway:
+        return "semantic_shared" if namespace.durable_shared_allowed else None
+    if namespace.durable_user_allowed:
         return "semantic_user"
     if namespace.durable_shared_allowed:
         return "semantic_shared"

@@ -170,7 +170,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
                 self._mirror_memory,
                 "\n".join(summary_parts),
                 source="session_end_summary",
-                target_layer="semantic_shared" if not self._namespace.is_gateway else "semantic_user",
+                target_layer="semantic_shared",
             )
         )
 
@@ -452,9 +452,12 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         namespace = self._namespace
         shared_requested, _ = resolve_shared_intent(content, namespace.metadata_shared_intent)
         if namespace.is_gateway:
+            # dslm_agent policy: Gateway users MUST NOT write to semantic_user.
+            # Only allowlisted users can write to semantic_shared.
             if self._shared_write_allowed(namespace, shared_requested):
                 return "semantic_shared"
-            return "semantic_user" if namespace.durable_user_allowed else None
+            # Block ALL durable memory writes for non-allowlisted Gateway users
+            return None
         if target == "user" and namespace.durable_user_allowed:
             return "semantic_user"
         return "semantic_shared"

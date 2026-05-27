@@ -115,14 +115,16 @@ def resolve_namespace(config: ProviderConfig, runtime: RuntimeContext) -> Namesp
     durable_shared_allowed = False
 
     if is_gateway:
+        # dslm_agent policy: Gateway users MUST NOT write durable user memory.
+        # durable_user_allowed is always False regardless of user identity.
+        # This prevents per-user memory contamination in shared accounts.
+        durable_user_allowed = False
         if runtime.user_email:
             principal_id = runtime.user_email
             principal_source = "user_email"
-            durable_user_allowed = is_primary
         elif runtime.user_id:
             principal_id = runtime.user_id
             principal_source = "user_id"
-            durable_user_allowed = is_primary
         allowlisted = runtime.user_email in set(config.shared_writer_emails)
         durable_shared_allowed = is_primary and allowlisted
     else:
@@ -131,10 +133,14 @@ def resolve_namespace(config: ProviderConfig, runtime: RuntimeContext) -> Namesp
 
     if config.allow_non_primary_durable_writes and not is_primary:
         durable_shared_allowed = True
-        if runtime.user_email:
-            durable_user_allowed = True
-        elif runtime.user_id:
-            durable_user_allowed = True
+        # dslm_agent policy: Even if allow_non_primary_durable_writes is True,
+        # Gateway users MUST NOT get durable_user_allowed. Only non-gateway
+        # (CLI/cron) non-primary contexts may write user memory.
+        if not is_gateway:
+            if runtime.user_email:
+                durable_user_allowed = True
+            elif runtime.user_id:
+                durable_user_allowed = True
 
     return NamespaceContext(
         profile_id=config.profile_id,

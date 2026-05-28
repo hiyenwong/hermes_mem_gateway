@@ -303,6 +303,39 @@ def test_compact_user_day_truncates_to_configured_limit(tmp_path: Path) -> None:
         store.close()
 
 
+def test_compact_daily_handles_user_id_alt_principals(tmp_path: Path) -> None:
+    config = ProviderConfig(
+        profile_id="coder",
+        memory_workspace="workspace-a",
+        embedding_dimensions=32,
+        prefer_user_id_alt=True,
+    )
+    store = build_store(tmp_path, config)
+    try:
+        date = today_utc()
+        store.insert_memory(
+            profile_id=config.profile_id,
+            workspace_id=config.memory_workspace,
+            principal_id="canonical-1",
+            session_id="session-1",
+            layer="semantic_user",
+            kind="explicit_memory",
+            content="Cross-platform user remembers their favorite tea.",
+            fingerprint=fingerprint_text("Cross-platform user remembers their favorite tea."),
+            source="test",
+            importance=0.9,
+            metadata={"principal_source": "user_id_alt"},
+        )
+
+        result = compact_daily(store=store, config=config, date=date)
+
+        assert result["completed"] == 1
+        assert result["failed"] == 0
+        assert result["results"][0]["principal_id"] == "canonical-1"
+    finally:
+        store.close()
+
+
 def test_shared_intent_matches_chinese_phrase_in_natural_text() -> None:
     chinese_intent = resolve_shared_intent("请保存为共享记忆，让其他人也能用", None)
     english_intent = resolve_shared_intent("Please save this to shared memory now.", None)

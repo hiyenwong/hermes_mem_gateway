@@ -24,6 +24,7 @@ ENV_KEY_MAP = {
     "LAYERED_MEMORY_GATEWAY_PLATFORMS": "gateway_platforms",
     "LAYERED_MEMORY_STORAGE_ROOT": "storage_root",
     "LAYERED_MEMORY_MAINTENANCE_MAX_RECORDS_PER_DAY": "maintenance_max_records_per_day",
+    "LAYERED_MEMORY_PREFER_USER_ID_ALT": "prefer_user_id_alt",
 }
 
 
@@ -42,6 +43,7 @@ class ProviderConfig:
     )
     storage_root: str = ""
     maintenance_max_records_per_day: int = 1000
+    prefer_user_id_alt: bool = False
 
     @classmethod
     def from_mapping(cls, values: Dict[str, Any] | None) -> "ProviderConfig":
@@ -87,9 +89,7 @@ def parse_env_file(path: Path) -> Dict[str, str]:
 
 
 def _coerce_env_value(key: str, value: str) -> Any:
-    if key == "allow_non_primary_durable_writes":
-        return coerce_bool(value)
-    if key == "shared_explicit_required":
+    if key in {"allow_non_primary_durable_writes", "shared_explicit_required", "prefer_user_id_alt"}:
         return coerce_bool(value)
     if key in {"promotion_min_score"}:
         return float(value)

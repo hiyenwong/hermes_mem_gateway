@@ -31,6 +31,7 @@ class RuntimeContext:
     user_id: str = ""
     user_email: str = ""
     user_name: str = ""
+    user_id_alt: str = ""
     principal_source: str = ""
     request_metadata: dict[str, Any] | None = None
     metadata_shared_intent: bool | None = None
@@ -50,6 +51,7 @@ class NamespaceContext:
     user_id: str
     user_email: str
     user_name: str
+    user_id_alt: str
     principal_source: str
     request_metadata: dict[str, Any]
     metadata_shared_intent: bool | None
@@ -84,7 +86,7 @@ def _metadata_shared_intent(metadata: dict[str, Any]) -> bool | None:
     return None
 
 
-def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str]:
+def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str, str]:
     headers = _canonicalize_headers(
         kwargs.get("headers")
         or kwargs.get("request_headers")
@@ -106,12 +108,13 @@ def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str]:
         or headers.get(OPENWEBUI_HEADER_MAP["user_name"], "")
         or ""
     ).strip()
+    user_id_alt = str(kwargs.get("user_id_alt") or "").strip()
     if not (user_email or user_id) and _is_gatewayish_kwargs(kwargs):
         body_email, body_id, body_name = _identity_from_messages(_messages_from_kwargs(kwargs))
         user_email = user_email or body_email
         user_id = user_id or body_id
         user_name = user_name or body_name
-    return user_email, user_id, user_name
+    return user_email, user_id, user_name, user_id_alt
 
 
 def _is_gatewayish_kwargs(kwargs: dict[str, Any]) -> bool:
@@ -189,13 +192,8 @@ def resolve_namespace(config: ProviderConfig, runtime: RuntimeContext) -> Namesp
     durable_shared_allowed = False
 
     if is_gateway:
-        if runtime.user_email:
-            principal_id = runtime.user_email
-            principal_source = "user_email"
-            durable_user_allowed = is_primary
-        elif runtime.user_id:
-            principal_id = runtime.user_id
-            principal_source = "user_id"
+        principal_id, principal_source = _gateway_principal(config, runtime)
+        if principal_source:
             durable_user_allowed = is_primary
         allowlisted = runtime.user_email in set(config.shared_writer_emails)
         durable_shared_allowed = is_primary and allowlisted
@@ -205,9 +203,7 @@ def resolve_namespace(config: ProviderConfig, runtime: RuntimeContext) -> Namesp
 
     if config.allow_non_primary_durable_writes and not is_primary:
         durable_shared_allowed = True
-        if runtime.user_email:
-            durable_user_allowed = True
-        elif runtime.user_id:
+        if principal_source:
             durable_user_allowed = True
 
     return NamespaceContext(
@@ -223,15 +219,36 @@ def resolve_namespace(config: ProviderConfig, runtime: RuntimeContext) -> Namesp
         user_id=runtime.user_id,
         user_email=runtime.user_email,
         user_name=runtime.user_name,
+        user_id_alt=runtime.user_id_alt,
         principal_source=principal_source or runtime.principal_source,
         request_metadata=runtime.request_metadata or {},
         metadata_shared_intent=runtime.metadata_shared_intent,
     )
 
 
+def _gateway_principal(config: ProviderConfig, runtime: RuntimeContext) -> tuple[str, str]:
+    if runtime.user_email:
+        return runtime.user_email, "user_email"
+    if config.prefer_user_id_alt and runtime.user_id_alt:
+        return runtime.user_id_alt, "user_id_alt"
+    if runtime.user_id:
+        return runtime.user_id, "user_id"
+    if runtime.user_id_alt:
+        return runtime.user_id_alt, "user_id_alt"
+    return SHARED_PRINCIPAL, ""
+
+
 def runtime_from_kwargs(session_id: str, **kwargs: Any) -> RuntimeContext:
     metadata = _metadata_from_kwargs(kwargs)
-    user_email, user_id, user_name = _identity_from_kwargs(kwargs)
+    user_email, user_id, user_name, user_id_alt = _identity_from_kwargs(kwargs)
+    if user_email:
+        principal_hint = "user_email"
+    elif user_id:
+        principal_hint = "user_id"
+    elif user_id_alt:
+        principal_hint = "user_id_alt"
+    else:
+        principal_hint = ""
     return RuntimeContext(
         session_id=session_id,
         platform=str(kwargs.get("platform", "cli") or "cli"),
@@ -242,7 +259,8 @@ def runtime_from_kwargs(session_id: str, **kwargs: Any) -> RuntimeContext:
         user_id=user_id,
         user_email=user_email,
         user_name=user_name,
-        principal_source="user_email" if user_email else ("user_id" if user_id else ""),
+        user_id_alt=user_id_alt,
+        principal_source=principal_hint,
         request_metadata=metadata,
         metadata_shared_intent=_metadata_shared_intent(metadata),
     )

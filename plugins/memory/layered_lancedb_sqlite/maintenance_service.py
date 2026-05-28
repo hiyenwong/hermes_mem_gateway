@@ -49,10 +49,12 @@ def maintenance_namespace(
     user_email: str = "",
     user_id: str = "",
     user_name: str = "",
+    user_id_alt: str = "",
 ) -> NamespaceContext:
-    if not user_email and not user_id:
-        raise ValueError("maintenance requires stable user_email or user_id")
-    session_id = f"maintenance:{date}:{user_email or user_id}"
+    if not (user_email or user_id or user_id_alt):
+        raise ValueError("maintenance requires stable user_email, user_id, or user_id_alt")
+    principal_hint = user_email or user_id or user_id_alt
+    session_id = f"maintenance:{date}:{principal_hint}"
     runtime = runtime_from_kwargs(
         session_id,
         platform="gateway",
@@ -62,6 +64,7 @@ def maintenance_namespace(
         user_email=user_email,
         user_id=user_id,
         user_name=user_name,
+        user_id_alt=user_id_alt,
         request_metadata={
             "maintenance": True,
             "maintenance_kind": OPERATION_DAILY_COMPACTION,
@@ -78,6 +81,7 @@ def compact_user_day(
     user_email: str = "",
     user_id: str = "",
     user_name: str = "",
+    user_id_alt: str = "",
     force: bool = False,
 ) -> MaintenanceResult:
     _validate_date(date)
@@ -87,6 +91,7 @@ def compact_user_day(
         user_email=user_email,
         user_id=user_id,
         user_name=user_name,
+        user_id_alt=user_id_alt,
     )
     key = maintenance_state_key(
         operation=OPERATION_DAILY_COMPACTION,
@@ -168,7 +173,7 @@ def compact_daily(
     skipped = 0
     for principal in principals:
         principal_id = principal["principal_id"]
-        user_email, user_id = _split_principal(principal_id, principal["principal_source"])
+        user_email, user_id, user_id_alt = _split_principal(principal_id, principal["principal_source"])
         try:
             result = compact_user_day(
                 store=store,
@@ -176,6 +181,7 @@ def compact_daily(
                 date=date,
                 user_email=user_email,
                 user_id=user_id,
+                user_id_alt=user_id_alt,
                 force=force,
             )
         except Exception as exc:
@@ -212,14 +218,16 @@ def compact_daily(
     }
 
 
-def _split_principal(principal_id: str, principal_source: str) -> tuple[str, str]:
+def _split_principal(principal_id: str, principal_source: str) -> tuple[str, str, str]:
     if principal_source == "user_email":
-        return principal_id, ""
+        return principal_id, "", ""
     if principal_source == "user_id":
-        return "", principal_id
+        return "", principal_id, ""
+    if principal_source == "user_id_alt":
+        return "", "", principal_id
     if "@" in principal_id:
-        return principal_id, ""
-    return "", principal_id
+        return principal_id, "", ""
+    return "", principal_id, ""
 
 
 def _compact_started_user_day(

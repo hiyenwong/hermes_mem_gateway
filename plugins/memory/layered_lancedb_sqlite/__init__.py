@@ -147,6 +147,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             "user_id": kwargs.get("user_id", self._runtime.user_id),
             "user_email": kwargs.get("user_email", self._runtime.user_email),
             "user_name": kwargs.get("user_name", self._runtime.user_name),
+            "user_id_alt": kwargs.get("user_id_alt", self._runtime.user_id_alt),
             "request_metadata": kwargs.get("request_metadata", self._runtime.request_metadata),
             "metadata": kwargs.get("metadata", self._runtime.request_metadata),
             "headers": kwargs.get("headers", None),
@@ -233,6 +234,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
                 user_id=runtime.user_id,
                 user_email=runtime.user_email,
                 user_name=runtime.user_name,
+                user_id_alt=runtime.user_id_alt,
                 request_metadata=runtime.request_metadata,
             )
             return resolve_namespace(self._config, runtime)

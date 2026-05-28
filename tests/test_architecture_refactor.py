@@ -115,6 +115,51 @@ def test_shared_intent_metadata_overrides_natural_language() -> None:
     assert decision.source == "metadata"
 
 
+def test_user_id_alt_is_fallback_only_when_prefer_disabled() -> None:
+    config = ProviderConfig(prefer_user_id_alt=False)
+    both = namespace_for(config, platform="gateway", user_id="tg-456", user_id_alt="canonical-1")
+    only_alt = namespace_for(config, platform="gateway", user_id_alt="canonical-1")
+
+    assert both.principal_id == "tg-456"
+    assert both.principal_source == "user_id"
+    assert only_alt.principal_id == "canonical-1"
+    assert only_alt.principal_source == "user_id_alt"
+
+
+def test_user_id_alt_wins_over_user_id_when_prefer_enabled() -> None:
+    config = ProviderConfig(prefer_user_id_alt=True)
+    namespace = namespace_for(
+        config, platform="gateway", user_id="tg-456", user_id_alt="canonical-1"
+    )
+
+    assert namespace.principal_id == "canonical-1"
+    assert namespace.principal_source == "user_id_alt"
+    assert namespace.user_id == "tg-456"
+    assert namespace.user_id_alt == "canonical-1"
+
+
+def test_user_email_still_wins_when_prefer_user_id_alt_enabled() -> None:
+    config = ProviderConfig(prefer_user_id_alt=True)
+    namespace = namespace_for(
+        config,
+        platform="gateway",
+        user_email="robin@example.com",
+        user_id="tg-456",
+        user_id_alt="canonical-1",
+    )
+
+    assert namespace.principal_id == "robin@example.com"
+    assert namespace.principal_source == "user_email"
+
+
+def test_user_id_alt_enables_cross_platform_principal_unification() -> None:
+    config = ProviderConfig(prefer_user_id_alt=True)
+    telegram = namespace_for(config, platform="gateway", user_id="tg-456", user_id_alt="canonical-1")
+    openwebui = namespace_for(config, platform="gateway", user_id="owui-abc", user_id_alt="canonical-1")
+
+    assert telegram.principal_id == openwebui.principal_id == "canonical-1"
+
+
 def test_recall_scopes_are_explicit_and_ordered() -> None:
     config = ProviderConfig()
     namespace = namespace_for(config, platform="gateway", user_id="user-1")

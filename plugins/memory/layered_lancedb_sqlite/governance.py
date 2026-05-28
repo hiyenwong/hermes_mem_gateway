@@ -6,8 +6,16 @@ from hashlib import sha1
 from typing import Iterable
 
 
-EXPLICIT_MEMORY_RE = re.compile(r"\b(remember|memorize|my preference is|i prefer|my name is|call me)\b", re.I)
-TRANSIENT_RE = re.compile(r"\b(today|tomorrow|right now|currently|temporary|for this session)\b", re.I)
+EXPLICIT_MEMORY_RE = re.compile(
+    r"(?:\b(?:remember|memorize|my preference is|i prefer|my name is|call me)\b"
+    r"|记住|记下|请记|帮我记|我的名字是|我叫|我喜欢|我偏好|我的偏好是)",
+    re.I,
+)
+TRANSIENT_RE = re.compile(
+    r"(?:\b(?:today|tomorrow|right now|currently|temporary|for this session)\b"
+    r"|今天|明天|现在|目前|暂时|这次)",
+    re.I,
+)
 @dataclass
 class CandidateMemory:
     content: str

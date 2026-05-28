@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Literal
 
 from .config import ProviderConfig
@@ -40,6 +41,8 @@ class RecallScope:
     principal_id: str
     session_id: str
     semantic: bool
+    date_filter: str = ""
+    exclude_session_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -243,7 +246,8 @@ def maintenance_user_write_decision(
     )
 
 
-def recall_scopes(namespace: NamespaceContext) -> list[RecallScope]:
+def recall_scopes(namespace: NamespaceContext, *, today: str = "") -> list[RecallScope]:
+    today = today or datetime.now(timezone.utc).date().isoformat()
     scopes = [
         RecallScope(
             "Session episodic memory",
@@ -254,6 +258,17 @@ def recall_scopes(namespace: NamespaceContext) -> list[RecallScope]:
         )
     ]
     if namespace.is_gateway and namespace.principal_id != SHARED_PRINCIPAL:
+        scopes.append(
+            RecallScope(
+                "Today's cross-session memory",
+                "episodic",
+                namespace.principal_id,
+                "",
+                False,
+                date_filter=today,
+                exclude_session_id=namespace.session_id,
+            )
+        )
         scopes.append(RecallScope("User semantic memory", "semantic_user", namespace.principal_id, "", True))
     scopes.append(RecallScope("Workspace shared memory", "semantic_shared", SHARED_PRINCIPAL, "", True))
     return scopes

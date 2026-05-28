@@ -123,6 +123,7 @@ def test_recall_scopes_are_explicit_and_ordered() -> None:
 
     assert [(scope.title, scope.layer, scope.principal_id) for scope in scopes] == [
         ("Session episodic memory", "episodic", "user-1"),
+        ("Today's cross-session memory", "episodic", "user-1"),
         ("User semantic memory", "semantic_user", "user-1"),
         ("Workspace shared memory", "semantic_shared", SHARED_PRINCIPAL),
     ]

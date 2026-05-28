@@ -37,6 +37,8 @@ def assemble_recall(query: str, *, config: ProviderConfig, namespace: NamespaceC
             session_id=scope.session_id,
             layer=scope.layer,
             limit=config.recall_limit_per_layer,
+            date=scope.date_filter,
+            exclude_session_id=scope.exclude_session_id,
         )
         if records:
             blocks.append(format_memory_block(scope.title, records))

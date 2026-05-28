@@ -431,6 +431,8 @@ class SQLiteStore:
         session_id: str,
         layer: str,
         limit: int,
+        date: str = "",
+        exclude_session_id: str = "",
     ) -> list[dict[str, Any]]:
         where = [
             "profile_id = ?",
@@ -445,6 +447,12 @@ class SQLiteStore:
         if session_id:
             where.append("session_id = ?")
             params.append(session_id)
+        if exclude_session_id:
+            where.append("session_id != ?")
+            params.append(exclude_session_id)
+        if date:
+            where.append("created_at LIKE ?")
+            params.append(f"{date}%")
         query = f"""
             SELECT * FROM memories
             WHERE {' AND '.join(where)}

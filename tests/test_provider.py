@@ -148,6 +148,39 @@ def test_prefetch_cache_is_scoped_by_principal(tmp_path: Path) -> None:
     provider.shutdown()
 
 
+def test_chinese_explicit_memory_promotes_to_semantic_user(tmp_path: Path) -> None:
+    provider = build_provider(tmp_path, platform="gateway", user_id="user-zh")
+    provider.sync_turn("请记住，我的项目用 uv 做包管理。", "好的，已记下。")
+    provider.shutdown()
+
+    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    with sqlite3.connect(sqlite_path) as conn:
+        rows = conn.execute(
+            "SELECT layer, principal_id, content FROM memories WHERE layer = 'semantic_user'"
+        ).fetchall()
+    assert any(row[1] == "user-zh" and "uv 做包管理" in row[2] for row in rows)
+
+
+def test_recall_returns_today_other_session_episodic_for_gateway_user(tmp_path: Path) -> None:
+    provider = build_provider(tmp_path, platform="gateway", user_id="user-x", session_id="session-old")
+    provider.sync_turn("昨晚那场会议的纪要发到飞书共享文件夹了", "好的，知道了。")
+    provider.shutdown()
+
+    provider = build_provider(tmp_path, platform="gateway", user_id="user-x", session_id="session-new")
+    recall = provider.prefetch("飞书")
+    assert "Today's cross-session memory" in recall
+    assert "飞书共享文件夹" in recall
+    provider.shutdown()
+
+
+def test_recall_other_session_scope_excludes_current_session(tmp_path: Path) -> None:
+    provider = build_provider(tmp_path, platform="gateway", user_id="user-y", session_id="session-only")
+    provider.sync_turn("当前 session 里随便说点东西", "OK。")
+    recall = provider.prefetch("session")
+    assert "Today's cross-session memory" not in recall
+    provider.shutdown()
+
+
 def test_explicit_session_id_is_honored_before_session_switch(tmp_path: Path) -> None:
     provider = build_provider(tmp_path, platform="cli", session_id="session-1")
     provider.sync_turn(

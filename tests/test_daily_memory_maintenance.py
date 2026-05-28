@@ -18,7 +18,10 @@ from plugins.memory.layered_lancedb_sqlite.maintenance_service import (
     maintenance_namespace,
     maintenance_state_key,
 )
-from plugins.memory.layered_lancedb_sqlite.policy import maintenance_user_write_decision
+from plugins.memory.layered_lancedb_sqlite.policy import (
+    maintenance_user_write_decision,
+    resolve_shared_intent,
+)
 from plugins.memory.layered_lancedb_sqlite.storage import SQLiteStore
 
 
@@ -161,6 +164,65 @@ def test_maintenance_namespace_rejects_display_name_only() -> None:
 
     with pytest.raises(ValueError):
         maintenance_namespace(config, session_id="maintenance:today:Doris", user_name="Doris")
+
+
+def test_compact_daily_does_not_double_count_skipped_as_completed(tmp_path: Path) -> None:
+    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    store = build_store(tmp_path, config)
+    try:
+        date = today_utc()
+        insert_user_memory(store, config, "user-a", "Remember that I drink oolong.")
+
+        first = compact_daily(store=store, config=config, date=date)
+        second = compact_daily(store=store, config=config, date=date)
+
+        assert first["completed"] == 1
+        assert first["skipped"] == 0
+        assert second["completed"] == 0
+        assert second["skipped"] == 1
+        assert second["completed"] + second["failed"] + second["skipped"] == second["processed_principals"]
+    finally:
+        store.close()
+
+
+def test_compact_daily_uses_principal_source_over_at_sign_heuristic(tmp_path: Path) -> None:
+    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    store = build_store(tmp_path, config)
+    try:
+        date = today_utc()
+        oidc_subject = "auth0|abc@def"
+        store.insert_memory(
+            profile_id=config.profile_id,
+            workspace_id=config.memory_workspace,
+            principal_id=oidc_subject,
+            session_id="session-1",
+            layer="semantic_user",
+            kind="explicit_memory",
+            content="Remember that I prefer matcha.",
+            fingerprint=fingerprint_text("Remember that I prefer matcha."),
+            source="test",
+            importance=0.95,
+            metadata={"principal_source": "user_id"},
+        )
+
+        result = compact_daily(store=store, config=config, date=date)
+
+        assert result["completed"] == 1
+        assert result["failed"] == 0
+        assert result["results"][0]["principal_id"] == oidc_subject
+    finally:
+        store.close()
+
+
+def test_shared_intent_matches_chinese_phrase_in_natural_text() -> None:
+    chinese_intent = resolve_shared_intent("请保存为共享记忆，让其他人也能用", None)
+    english_intent = resolve_shared_intent("Please save this to shared memory now.", None)
+    unrelated_intent = resolve_shared_intent("今天天气很好", None)
+
+    assert chinese_intent.requested is True
+    assert chinese_intent.source == "natural_language"
+    assert english_intent.requested is True
+    assert unrelated_intent.requested is False
 
 
 def test_cli_compact_user_and_compact_daily(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

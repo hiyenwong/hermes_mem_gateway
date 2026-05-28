@@ -498,22 +498,30 @@ class SQLiteStore:
             payload.append(data)
         return payload
 
-    def list_user_principals(self, *, profile_id: str, workspace_id: str) -> list[str]:
+    def list_user_principals(self, *, profile_id: str, workspace_id: str) -> list[dict[str, str]]:
         with self._lock:
             cursor = self._conn.execute(
                 """
-                SELECT DISTINCT principal_id
+                SELECT principal_id,
+                       COALESCE(MAX(json_extract(metadata_json, '$.principal_source')), '') AS principal_source
                 FROM memories
                 WHERE profile_id = ?
                   AND workspace_id = ?
                   AND layer = 'semantic_user'
                   AND principal_id != ''
+                GROUP BY principal_id
                 ORDER BY principal_id
                 """,
                 (profile_id, workspace_id),
             )
             rows = cursor.fetchall()
-        return [str(row["principal_id"]) for row in rows]
+        return [
+            {
+                "principal_id": str(row["principal_id"]),
+                "principal_source": str(row["principal_source"] or ""),
+            }
+            for row in rows
+        ]
 
     def fetch_user_records_for_date(
         self,

@@ -163,20 +163,22 @@ def compact_daily(
     failed = 0
     skipped = 0
     for principal in principals:
+        principal_id = principal["principal_id"]
+        user_email, user_id = _split_principal(principal_id, principal["principal_source"])
         try:
             result = compact_user_day(
                 store=store,
                 config=config,
                 date=date,
-                user_email=principal if "@" in principal else "",
-                user_id="" if "@" in principal else principal,
+                user_email=user_email,
+                user_id=user_id,
                 force=force,
             )
         except Exception as exc:
             failed += 1
             results.append(
                 {
-                    "principal_id": principal,
+                    "principal_id": principal_id,
                     "date": date,
                     "status": "failed",
                     "error": str(exc),
@@ -185,7 +187,7 @@ def compact_daily(
             continue
         if result.skipped:
             skipped += 1
-        if result.status == "completed":
+        elif result.status == "completed":
             completed += 1
         results.append(result.to_mapping())
     return {
@@ -197,6 +199,16 @@ def compact_daily(
         "skipped": skipped,
         "results": results,
     }
+
+
+def _split_principal(principal_id: str, principal_source: str) -> tuple[str, str]:
+    if principal_source == "user_email":
+        return principal_id, ""
+    if principal_source == "user_id":
+        return "", principal_id
+    if "@" in principal_id:
+        return principal_id, ""
+    return "", principal_id
 
 
 def _compact_started_user_day(

@@ -378,10 +378,7 @@ class SQLiteStore:
             )
             self._conn.commit()
 
-    def archive(self, memory_id: str) -> None:
-        self.archive_with_metadata(memory_id)
-
-    def archive_with_metadata(self, memory_id: str, metadata_update: dict[str, Any] | None = None) -> None:
+    def archive(self, memory_id: str, metadata_update: dict[str, Any] | None = None) -> None:
         now = utc_now()
         with self._lock:
             if metadata_update:

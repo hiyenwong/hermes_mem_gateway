@@ -181,12 +181,19 @@ def compact_daily(
         except Exception as exc:
             failed += 1
             results.append(
-                {
-                    "principal_id": principal_id,
-                    "date": date,
-                    "status": "failed",
-                    "error": str(exc),
-                }
+                MaintenanceResult(
+                    principal_id=principal_id,
+                    date=date,
+                    state_key=maintenance_state_key(
+                        operation=OPERATION_DAILY_COMPACTION,
+                        profile_id=config.profile_id,
+                        workspace_id=config.memory_workspace,
+                        principal_id=principal_id,
+                        date=date,
+                    ),
+                    status="failed",
+                    error=str(exc),
+                ).to_mapping()
             )
             continue
         if result.skipped:
@@ -311,7 +318,7 @@ def _archive_duplicate_fingerprints(
         if len(duplicates) <= 1:
             continue
         for record in duplicates[1:]:
-            store.archive_with_metadata(
+            store.archive(
                 str(record["id"]),
                 {
                     **record.get("metadata", {}),

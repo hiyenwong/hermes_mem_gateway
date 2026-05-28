@@ -214,6 +214,73 @@ def test_compact_daily_uses_principal_source_over_at_sign_heuristic(tmp_path: Pa
         store.close()
 
 
+def test_compact_daily_failure_result_shares_shape_with_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    store = build_store(tmp_path, config)
+    try:
+        date = today_utc()
+        insert_user_memory(store, config, "user-good", "Remember oolong.")
+        insert_user_memory(store, config, "user-bad", "Remember jasmine.")
+
+        original_fetch = store.fetch_user_records_for_date
+
+        def fail_for_bad(**kwargs):
+            if kwargs.get("principal_id") == "user-bad":
+                raise RuntimeError("simulated failure")
+            return original_fetch(**kwargs)
+
+        monkeypatch.setattr(store, "fetch_user_records_for_date", fail_for_bad)
+
+        summary = compact_daily(store=store, config=config, date=date)
+
+        assert summary["completed"] == 1
+        assert summary["failed"] == 1
+        success_keys = next(item.keys() for item in summary["results"] if item["status"] == "completed")
+        failure_keys = next(item.keys() for item in summary["results"] if item["status"] == "failed")
+        assert set(success_keys) == set(failure_keys)
+        failure_entry = next(item for item in summary["results"] if item["status"] == "failed")
+        assert failure_entry["principal_id"] == "user-bad"
+        assert failure_entry["error"] == "simulated failure"
+        assert failure_entry["processed_count"] == 0
+        assert failure_entry["output_memory_id"] == ""
+    finally:
+        store.close()
+
+
+def test_archive_merges_metadata_when_provided(tmp_path: Path) -> None:
+    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    store = build_store(tmp_path, config)
+    try:
+        memory_id = insert_user_memory(store, config, "user-a", "Remember pu-erh.")
+
+        store.archive(memory_id, {"reason": "supersession_test", "decided_by": "unit-test"})
+
+        with sqlite3.connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT status, metadata_json FROM memories WHERE id = ?",
+                (memory_id,),
+            ).fetchone()
+        assert row[0] == "archived"
+        metadata = json.loads(row[1])
+        assert metadata["reason"] == "supersession_test"
+        assert metadata["decided_by"] == "unit-test"
+
+
+        plain_id = insert_user_memory(store, config, "user-b", "Remember mate.")
+        store.archive(plain_id)
+        with sqlite3.connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT status, metadata_json FROM memories WHERE id = ?",
+                (plain_id,),
+            ).fetchone()
+        assert row[0] == "archived"
+        assert json.loads(row[1]) == {}
+    finally:
+        store.close()
+
+
 def test_compact_user_day_truncates_to_configured_limit(tmp_path: Path) -> None:
     config = ProviderConfig(
         profile_id="coder",

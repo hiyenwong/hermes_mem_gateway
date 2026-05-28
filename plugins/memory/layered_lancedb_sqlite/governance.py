@@ -1,21 +1,15 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from hashlib import sha1
 from typing import Iterable
+import re
 
-from .namespace import NamespaceContext
+from .policy import resolve_shared_intent
 
 
 EXPLICIT_MEMORY_RE = re.compile(r"\b(remember|memorize|my preference is|i prefer|my name is|call me)\b", re.I)
 TRANSIENT_RE = re.compile(r"\b(today|tomorrow|right now|currently|temporary|for this session)\b", re.I)
-SHARED_MEMORY_RE = re.compile(
-    r"\b(remember this as shared|save this to shared memory|share this memory|保存为共享记忆|记到共享记忆里)\b",
-    re.I,
-)
-
-
 @dataclass
 class CandidateMemory:
     content: str
@@ -56,27 +50,6 @@ def classify_turn(user_text: str, assistant_text: str) -> list[CandidateMemory]:
             )
         )
     return candidates
-
-
-def resolve_shared_intent(user_text: str, metadata_shared_intent: bool | None) -> tuple[bool, str]:
-    if metadata_shared_intent is not None:
-        return metadata_shared_intent, "metadata"
-    if SHARED_MEMORY_RE.search(normalize_sentence(user_text)):
-        return True, "natural_language"
-    return False, "none"
-
-
-def select_durable_layer(candidate: CandidateMemory, namespace: NamespaceContext) -> str | None:
-    if candidate.confidence < 0.8:
-        return None
-    # dslm_agent hard block: Gateway users MUST NOT write semantic_user ever
-    if namespace.is_gateway:
-        return "semantic_shared" if namespace.durable_shared_allowed else None
-    if namespace.durable_user_allowed:
-        return "semantic_user"
-    if namespace.durable_shared_allowed:
-        return "semantic_shared"
-    return None
 
 
 def rank_record(

@@ -48,3 +48,12 @@ The provider exposes a small maintenance CLI when active:
 hermes layered_lancedb_sqlite validate
 hermes layered_lancedb_sqlite rebuild-index
 ```
+
+## Architecture
+
+The canonical implementation lives in `plugins/memory/layered_lancedb_sqlite/`.
+Root-level modules in this repository are compatibility shims only.
+
+Policy-sensitive decisions are centralized in `policy.py`; provider hooks
+delegate recall, promotion, memory-write mirroring, prompt formatting, and
+background task handling to focused service modules.

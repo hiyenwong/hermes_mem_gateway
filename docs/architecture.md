@@ -18,6 +18,7 @@ graph TD
     A --> R[Recall Service]
     A --> M[Promotion Service]
     A --> W[Memory Write Service]
+    A --> X[Maintenance Service]
     A --> Q[Prompt Format]
     A --> T[Background Tasks]
     A --> D[Storage 存储层]
@@ -26,6 +27,8 @@ graph TD
     R --> P
     M --> P
     W --> P
+    X --> P
+    X --> D
     D --> G[SQLiteStore]
     D --> H[SemanticIndex]
     H --> I[LanceDB]
@@ -41,6 +44,7 @@ graph TD
 - [Storage](modules/storage.md) — 存储层，SQLite 权威存储 + LanceDB 语义索引
 - [Governance](modules/governance.md) — 候选治理，记忆分类、排序、指纹、取代关系判断
 - [CLI](modules/cli.md) — 维护 CLI，提供验证和索引重建命令
+- Maintenance Service — 显式触发的每日用户记忆维护，按 Gateway principal 隔离整理 `semantic_user`
 
 ## 分层结构
 
@@ -49,6 +53,7 @@ graph TD
 | 接口层 | 实现 Hermes MemoryProvider 钩子，对外提供服务 | [MemoryProvider](modules/memory_provider.md) |
 | 协调层 | 解析命名空间、应用策略、委托服务 | [Namespace](modules/namespace.md)、[Policy](modules/policy.md) |
 | 服务层 | 召回、升级、显式写入、格式化和后台任务 | Recall/Promotion/Memory Write/Prompt/Background modules |
+| 维护层 | 外部调度触发的用户记忆整理和幂等维护状态 | Maintenance Service、[CLI](modules/cli.md) |
 | 治理层 | 候选提取、置信度、指纹、取代关系 | [Governance](modules/governance.md) |
 | 存储层 | 持久化记忆记录、语义索引检索 | [Storage](modules/storage.md) |
 | 配置层 | 加载配置、合并环境变量覆盖 | [Config](modules/config.md) |
@@ -78,6 +83,16 @@ graph TD
 8. 插入语义记忆记录，更新 LanceDB 索引
 9. 低置信度记录自动归档（archive）
 
+### 每日维护流程
+
+1. Hermes 或外部调度器调用 `compact-user` 或 `compact-daily`
+2. 维护任务使用 Gateway 稳定身份（email 或 user_id）解析 maintenance namespace
+3. Storage 按 profile、workspace、principal、date 查询该用户 `semantic_user`
+4. Policy 只允许 maintenance context 写回同一个 principal 的 `semantic_user`
+5. Maintenance Service 生成确定性 compaction 输出并记录 provenance
+6. `maintenance_state` 以 operation/profile/workspace/principal/date 记录 started、completed 或 failed
+7. 重复执行已完成 key 时跳过，失败 key 可重试
+
 ## 关键设计决策
 
 - **SQLite 作为权威存储**：保证数据持久化和事务一致性，所有记忆记录首先写入 SQLite
@@ -85,6 +100,8 @@ graph TD
 - **Gateway 用户隔离**：Gateway 平台用户拥有独立的 semantic_user 层，非 Gateway 用户仅能访问 semantic_shared
 - **Policy 集中化**：shared intent、shared 授权、durable target layer、principal 和 recall scope 均在 `policy.py` 中决策
 - **Provider 拆薄**：Provider 保留 Hermes adapter 职责，召回、升级、显式写入、格式化和后台任务由服务模块承接
+- **每日维护外部调度**：Provider 暴露显式维护命令，不内置定时器；每个用户通过 Gateway principal 隔离整理
+- **Shared 维护独立**：per-user daily maintenance 不默认写 `semantic_shared`
 - **非主上下文权限控制**：agent_context="subagent" 的上下文默认禁止持久化语义记忆
 - **异步升级**：记忆升级在后台线程池执行，不阻塞主对话流程
 

@@ -47,7 +47,17 @@ The provider exposes a small maintenance CLI when active:
 ```bash
 hermes layered_lancedb_sqlite validate
 hermes layered_lancedb_sqlite rebuild-index
+hermes layered_lancedb_sqlite compact-user --profile coder --workspace workspace-a --date 2026-05-28 --user-email doris@example.com
+hermes layered_lancedb_sqlite compact-daily --profile coder --workspace workspace-a --date 2026-05-28
 ```
+
+Daily user maintenance is explicitly triggered by Hermes or an external
+scheduler. The provider does not start an internal timer. Per-user maintenance
+uses Gateway identity fields (`user_email` or `user_id`) to resolve the same
+private principal used by normal Gateway memory, reads and writes only that
+principal's `semantic_user` scope, and records idempotent maintenance state per
+profile/workspace/principal/date. Shared workspace memory maintenance is kept
+separate from per-user maintenance.
 
 ## Architecture Notes
 
@@ -67,6 +77,8 @@ The provider internals are split into focused modules:
 - `promotion_service.py`: turn consolidation, durable promotion, duplicate
   detection, and supersession
 - `memory_write_service.py`: explicit memory write mirroring
+- `maintenance_service.py`: externally triggered per-user daily maintenance,
+  idempotent state tracking, and deterministic compaction
 - `prompt_format.py`: memory and Gateway user context formatting
 - `background.py`: pending future tracking, draining, and background error
   capture

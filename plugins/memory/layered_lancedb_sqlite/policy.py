@@ -42,6 +42,15 @@ class RecallScope:
     semantic: bool
 
 
+@dataclass(frozen=True)
+class MaintenanceWriteDecision:
+    allowed: bool
+    layer: str | None
+    principal_id: str | None
+    reason: str
+    metadata: dict[str, object]
+
+
 def _normalize_sentence(text: str) -> str:
     return " ".join(text.strip().split())
 
@@ -193,6 +202,44 @@ def memory_write_decision(
         shared_intent,
         shared_authorized,
         policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+    )
+
+
+def maintenance_user_write_decision(
+    namespace: NamespaceContext,
+    *,
+    target_principal_id: str,
+    operation: str = "daily_compaction",
+) -> MaintenanceWriteDecision:
+    metadata = {
+        "gateway_user": namespace.is_gateway,
+        "principal_source": namespace.principal_source,
+        "resolved_user_email": namespace.user_email,
+        "resolved_user_id": namespace.user_id,
+        "resolved_user_name": namespace.user_name,
+        "maintenance": True,
+        "maintenance_operation": operation,
+        "privacy_scope": "private" if namespace.is_gateway else "shared",
+    }
+    if namespace.agent_context != "maintenance":
+        reason = "not_maintenance_context"
+        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+    if not namespace.is_gateway:
+        reason = "maintenance_requires_gateway_context"
+        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+    if namespace.principal_id == SHARED_PRINCIPAL:
+        reason = "maintenance_principal_missing"
+        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+    if target_principal_id != namespace.principal_id:
+        reason = "maintenance_cross_principal_blocked"
+        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+    reason = "maintenance_same_principal_user"
+    return MaintenanceWriteDecision(
+        True,
+        "semantic_user",
+        namespace.principal_id,
+        reason,
+        {**metadata, "policy_reason": reason},
     )
 
 

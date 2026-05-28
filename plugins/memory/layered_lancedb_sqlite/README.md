@@ -57,3 +57,14 @@ Root-level modules in this repository are compatibility shims only.
 Policy-sensitive decisions are centralized in `policy.py`; provider hooks
 delegate recall, promotion, memory-write mirroring, prompt formatting, and
 background task handling to focused service modules.
+
+Daily user maintenance is exposed through explicit CLI/service operations:
+
+```bash
+hermes layered_lancedb_sqlite compact-user --profile coder --workspace workspace-a --date 2026-05-28 --user-id owui-user-42
+hermes layered_lancedb_sqlite compact-daily --profile coder --workspace workspace-a --date 2026-05-28
+```
+
+Schedule these commands from Hermes or an external scheduler. Per-user
+maintenance runs with Gateway identity context and writes only to the same
+`semantic_user` principal; shared memory maintenance is intentionally separate.

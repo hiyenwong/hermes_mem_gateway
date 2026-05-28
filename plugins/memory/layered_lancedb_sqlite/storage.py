@@ -359,12 +359,29 @@ class SQLiteStore:
             self._conn.commit()
 
     def archive(self, memory_id: str) -> None:
+        self.archive_with_metadata(memory_id)
+
+    def archive_with_metadata(self, memory_id: str, metadata_update: dict[str, Any] | None = None) -> None:
         now = utc_now()
         with self._lock:
-            self._conn.execute(
-                "UPDATE memories SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?",
-                (now, now, memory_id),
-            )
+            if metadata_update:
+                cursor = self._conn.execute("SELECT metadata_json FROM memories WHERE id = ?", (memory_id,))
+                row = cursor.fetchone()
+                metadata = json.loads(row["metadata_json"] or "{}") if row else {}
+                metadata.update(metadata_update)
+                self._conn.execute(
+                    """
+                    UPDATE memories
+                    SET status = 'archived', archived_at = ?, updated_at = ?, metadata_json = ?
+                    WHERE id = ?
+                    """,
+                    (now, now, json.dumps(metadata, sort_keys=True), memory_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE memories SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?",
+                    (now, now, memory_id),
+                )
             self._conn.commit()
         self.index.remove(memory_id)
 
@@ -480,6 +497,71 @@ class SQLiteStore:
             data["vector"] = embed_text(data["content"], self.dimensions)
             payload.append(data)
         return payload
+
+    def list_user_principals(self, *, profile_id: str, workspace_id: str) -> list[str]:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                SELECT DISTINCT principal_id
+                FROM memories
+                WHERE profile_id = ?
+                  AND workspace_id = ?
+                  AND layer = 'semantic_user'
+                  AND principal_id != ''
+                ORDER BY principal_id
+                """,
+                (profile_id, workspace_id),
+            )
+            rows = cursor.fetchall()
+        return [str(row["principal_id"]) for row in rows]
+
+    def fetch_user_records_for_date(
+        self,
+        *,
+        profile_id: str,
+        workspace_id: str,
+        principal_id: str,
+        date: str,
+        layer: str = "semantic_user",
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                SELECT *
+                FROM memories
+                WHERE profile_id = ?
+                  AND workspace_id = ?
+                  AND principal_id = ?
+                  AND layer = ?
+                  AND status = 'active'
+                  AND created_at LIKE ?
+                ORDER BY created_at ASC
+                """,
+                (profile_id, workspace_id, principal_id, layer, f"{date}%"),
+            )
+            rows = cursor.fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def get_maintenance_state(self, key: str) -> dict[str, Any] | None:
+        with self._lock:
+            cursor = self._conn.execute("SELECT value FROM maintenance_state WHERE key = ?", (key,))
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        value = row["value"]
+        try:
+            data = json.loads(value)
+        except json.JSONDecodeError:
+            return {"status": "unknown", "value": value}
+        return data if isinstance(data, dict) else {"status": "unknown", "value": data}
+
+    def set_maintenance_state(self, key: str, value: dict[str, Any]) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO maintenance_state(key, value, updated_at) VALUES (?, ?, ?)",
+                (key, json.dumps(value, sort_keys=True), utc_now()),
+            )
+            self._conn.commit()
 
     def rebuild_index(self) -> int:
         rows = self.eligible_index_rows()

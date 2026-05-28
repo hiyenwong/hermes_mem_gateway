@@ -102,7 +102,8 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
 
     def sync_turn(self, user: str, assistant: str, *, session_id: str = "") -> None:
         store = self._require_store()
-        namespace = self._active_namespace(session_id=session_id or self._namespace.session_id)
+        explicit_session_id = session_id or self._namespace.session_id
+        namespace = self._active_namespace(session_id=explicit_session_id)
         episodic_id = store.insert_memory(
             profile_id=namespace.profile_id,
             workspace_id=namespace.workspace_id,
@@ -124,6 +125,8 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             agent_context=namespace.agent_context,
             session_id=namespace.session_id,
         )
+        if session_id and session_id != self._runtime.session_id:
+            return
         self._background.submit(
             consolidate_turn,
             store=store,

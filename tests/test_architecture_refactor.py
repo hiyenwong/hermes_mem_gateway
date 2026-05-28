@@ -198,6 +198,32 @@ def test_body_identity_supports_request_body_dict() -> None:
     assert namespace.principal_id == "robin@example.com"
 
 
+def test_body_identity_skipped_for_cli_platform() -> None:
+    config = ProviderConfig()
+    messages = [
+        {
+            "role": "system",
+            "content": "# Current User\nName: Robin\nEmail: robin@example.com",
+        }
+    ]
+    namespace = namespace_for(config, platform="cli", messages=messages)
+    assert namespace.user_email == ""
+    assert namespace.principal_id == SHARED_PRINCIPAL
+
+
+def test_body_identity_skipped_when_platform_unspecified() -> None:
+    config = ProviderConfig()
+    messages = [
+        {
+            "role": "system",
+            "content": "# Current User\nEmail: robin@example.com",
+        }
+    ]
+    namespace = namespace_for(config, messages=messages)
+    assert namespace.user_email == ""
+    assert namespace.principal_id == SHARED_PRINCIPAL
+
+
 def test_body_identity_ignored_when_messages_contain_no_marker() -> None:
     config = ProviderConfig()
     messages = [

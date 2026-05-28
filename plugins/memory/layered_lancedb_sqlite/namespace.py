@@ -106,12 +106,17 @@ def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str]:
         or headers.get(OPENWEBUI_HEADER_MAP["user_name"], "")
         or ""
     ).strip()
-    if not (user_email or user_id):
+    if not (user_email or user_id) and _is_gatewayish_kwargs(kwargs):
         body_email, body_id, body_name = _identity_from_messages(_messages_from_kwargs(kwargs))
         user_email = user_email or body_email
         user_id = user_id or body_id
         user_name = user_name or body_name
     return user_email, user_id, user_name
+
+
+def _is_gatewayish_kwargs(kwargs: dict[str, Any]) -> bool:
+    platform = str(kwargs.get("platform", "") or "").strip().lower()
+    return bool(platform) and platform != "cli"
 
 
 def _messages_from_kwargs(kwargs: dict[str, Any]) -> list[Any]:

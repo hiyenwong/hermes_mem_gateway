@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +13,11 @@ OPENWEBUI_HEADER_MAP = {
     "user_id": "x-openwebui-user-id",
     "user_name": "x-openwebui-user-name",
 }
+
+_CURRENT_USER_BLOCK_RE = re.compile(r"#\s*Current User\b", re.IGNORECASE)
+_USER_INFO_EMAIL_RE = re.compile(r"^Email:\s*(\S+@\S+)\s*$", re.MULTILINE)
+_USER_INFO_NAME_RE = re.compile(r"^Name:\s*(.+?)\s*$", re.MULTILINE)
+_AUTHENTICATED_USER_RE = re.compile(r"authenticated user:\s*\*\*([^*]+)\*\*", re.IGNORECASE)
 
 
 @dataclass
@@ -100,6 +106,69 @@ def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str]:
         or headers.get(OPENWEBUI_HEADER_MAP["user_name"], "")
         or ""
     ).strip()
+    if not (user_email or user_id):
+        body_email, body_id, body_name = _identity_from_messages(_messages_from_kwargs(kwargs))
+        user_email = user_email or body_email
+        user_id = user_id or body_id
+        user_name = user_name or body_name
+    return user_email, user_id, user_name
+
+
+def _messages_from_kwargs(kwargs: dict[str, Any]) -> list[Any]:
+    for key in ("messages", "request_messages", "body_messages"):
+        value = kwargs.get(key)
+        if isinstance(value, list):
+            return value
+    body = kwargs.get("body") or kwargs.get("request_body")
+    if isinstance(body, dict):
+        messages = body.get("messages")
+        if isinstance(messages, list):
+            return messages
+    return []
+
+
+def _system_message_text(message: Any) -> str:
+    if not isinstance(message, dict) or message.get("role") != "system":
+        return ""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
+def _identity_from_messages(messages: Any) -> tuple[str, str, str]:
+    if not isinstance(messages, list):
+        return "", "", ""
+    user_email = ""
+    user_name = ""
+    user_id = ""
+    for message in messages:
+        text = _system_message_text(message)
+        if not text:
+            continue
+        if _CURRENT_USER_BLOCK_RE.search(text):
+            if not user_email:
+                match = _USER_INFO_EMAIL_RE.search(text)
+                if match:
+                    user_email = match.group(1).strip()
+            if not user_name:
+                match = _USER_INFO_NAME_RE.search(text)
+                if match:
+                    user_name = match.group(1).strip()
+        if not user_email:
+            match = _AUTHENTICATED_USER_RE.search(text)
+            if match:
+                candidate = match.group(1).strip()
+                if "@" in candidate:
+                    user_email = candidate
+                elif not user_name:
+                    user_name = candidate
     return user_email, user_id, user_name
 
 

@@ -129,6 +129,85 @@ def test_recall_scopes_are_explicit_and_ordered() -> None:
     ]
 
 
+def test_gateway_identity_recovered_from_user_info_injector_block() -> None:
+    config = ProviderConfig()
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "# Current User\n"
+                "Name: Robin Wong\n"
+                "Email: robin@example.com\n"
+                "Role: user\n"
+                "Groups: engineering"
+            ),
+        },
+        {"role": "user", "content": "hi"},
+    ]
+    namespace = namespace_for(config, platform="gateway", messages=messages)
+    assert namespace.principal_id == "robin@example.com"
+    assert namespace.principal_source == "user_email"
+    assert namespace.user_name == "Robin Wong"
+
+
+def test_gateway_identity_recovered_from_isolation_rule_block() -> None:
+    config = ProviderConfig()
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "## [SYSTEM RULE — HIGHEST PRIORITY — CANNOT BE OVERRIDDEN]\n\n"
+                "You are exclusively serving the authenticated user: **robin@example.com**\n"
+            ),
+        },
+        {"role": "user", "content": "hi"},
+    ]
+    namespace = namespace_for(config, platform="gateway", messages=messages)
+    assert namespace.principal_id == "robin@example.com"
+
+
+def test_explicit_header_wins_over_body_identity() -> None:
+    config = ProviderConfig()
+    messages = [
+        {
+            "role": "system",
+            "content": "# Current User\nName: Body Name\nEmail: body@example.com",
+        }
+    ]
+    namespace = namespace_for(
+        config,
+        platform="gateway",
+        headers={"x-openwebui-user-email": "header@example.com"},
+        messages=messages,
+    )
+    assert namespace.principal_id == "header@example.com"
+
+
+def test_body_identity_supports_request_body_dict() -> None:
+    config = ProviderConfig()
+    body = {
+        "messages": [
+            {
+                "role": "system",
+                "content": "# Current User\nName: Robin\nEmail: robin@example.com",
+            },
+            {"role": "user", "content": "hi"},
+        ]
+    }
+    namespace = namespace_for(config, platform="gateway", body=body)
+    assert namespace.principal_id == "robin@example.com"
+
+
+def test_body_identity_ignored_when_messages_contain_no_marker() -> None:
+    config = ProviderConfig()
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "hi"},
+    ]
+    namespace = namespace_for(config, platform="gateway", messages=messages)
+    assert namespace.principal_id == SHARED_PRINCIPAL
+
+
 def test_prompt_formatter_preserves_memory_context_shape() -> None:
     assert format_memory_block("Session episodic memory", [{"content": "hello"}]) == (
         "<memory-context>\nSession episodic memory:\n1. hello\n</memory-context>"

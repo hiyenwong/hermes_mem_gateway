@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import sqlite3
@@ -9,6 +10,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+
+EMBEDDER_VERSION = "blake2b-counts-v1"
+EMBEDDER_STATE_KEY = "embedder_state"
 
 try:
     import lancedb  # type: ignore
@@ -26,11 +31,15 @@ def tokenize(text: str) -> list[str]:
     return [token for token in "".join(ch.lower() if ch.isalnum() else " " for ch in text).split() if token]
 
 
+def _stable_token_slot(token: str, dimensions: int) -> int:
+    digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % dimensions
+
+
 def embed_text(text: str, dimensions: int) -> list[float]:
     vector = [0.0] * dimensions
     for token in tokenize(text):
-        slot = hash(token) % dimensions
-        vector[slot] += 1.0
+        vector[_stable_token_slot(token, dimensions)] += 1.0
     norm = math.sqrt(sum(value * value for value in vector))
     if norm == 0:
         return vector
@@ -98,30 +107,7 @@ class SemanticIndex:
         if not rows:
             return
         with self._lock:
-            if self.backend == "lancedb" and self._table is not None:  # pragma: no cover
-                payload = []
-                for row in rows:
-                    payload.append(
-                        {
-                            "memory_id": row["memory_id"],
-                            "profile_id": row["profile_id"],
-                            "workspace_id": row["workspace_id"],
-                            "principal_id": row["principal_id"],
-                            "session_id": row["session_id"],
-                            "layer": row["layer"],
-                            "kind": row["kind"],
-                            "status": row["status"],
-                            "content": row["content"],
-                            "vector": [float(value) for value in row["vector"]],
-                        }
-                    )
-                self._table.add(payload)
-                return
-
-            existing = {row["memory_id"]: row for row in self._load_stub_rows()}
-            for row in rows:
-                existing[row["memory_id"]] = row
-            self._save_stub_rows(list(existing.values()))
+            self._upsert_locked(rows)
 
     def remove(self, memory_id: str) -> None:
         with self._lock:
@@ -151,14 +137,43 @@ class SemanticIndex:
     def rebuild(self, rows: Iterable[dict[str, Any]]) -> None:
         rows = list(rows)
         with self._lock:
-            if self.backend == "lancedb" and self._table is not None:  # pragma: no cover
+            if self.backend == "lancedb" and lancedb is not None:  # pragma: no cover
+                db = lancedb.connect(str(self.path))
                 try:
-                    self._table.delete("memory_id IS NOT NULL")
+                    db.drop_table("memory_index")
                 except Exception:
                     pass
+                self._table = None
+                self._init_lancedb()
             else:
                 self._save_stub_rows([])
-        self.upsert(rows)
+            self._upsert_locked(rows)
+
+    def _upsert_locked(self, rows: list[dict[str, Any]]) -> None:
+        if not rows:
+            return
+        if self.backend == "lancedb" and self._table is not None:  # pragma: no cover
+            payload = [
+                {
+                    "memory_id": row["memory_id"],
+                    "profile_id": row["profile_id"],
+                    "workspace_id": row["workspace_id"],
+                    "principal_id": row["principal_id"],
+                    "session_id": row["session_id"],
+                    "layer": row["layer"],
+                    "kind": row["kind"],
+                    "status": row["status"],
+                    "content": row["content"],
+                    "vector": [float(value) for value in row["vector"]],
+                }
+                for row in rows
+            ]
+            self._table.add(payload)
+            return
+        existing = {row["memory_id"]: row for row in self._load_stub_rows()}
+        for row in rows:
+            existing[row["memory_id"]] = row
+        self._save_stub_rows(list(existing.values()))
 
 
 class SQLiteStore:
@@ -574,10 +589,33 @@ class SQLiteStore:
     def rebuild_index(self) -> int:
         rows = self.eligible_index_rows()
         self.index.rebuild(rows)
+        self._persist_embedder_state(len(rows))
+        return len(rows)
+
+    def ensure_index_current(self) -> dict[str, Any]:
+        current = {"version": EMBEDDER_VERSION, "dimensions": self.dimensions}
+        state = self.get_maintenance_state(EMBEDDER_STATE_KEY) or {}
+        if state.get("version") == current["version"] and int(state.get("dimensions", -1)) == self.dimensions:
+            return {"rebuilt": False, **current}
+        rebuilt_count = self.rebuild_index()
+        return {"rebuilt": True, "rebuilt_count": rebuilt_count, **current}
+
+    def _persist_embedder_state(self, rebuilt_count: int) -> None:
+        now = utc_now()
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO maintenance_state(key, value, updated_at) VALUES (?, ?, ?)",
-                ("last_rebuild_count", str(len(rows)), utc_now()),
+                ("last_rebuild_count", str(rebuilt_count), now),
+            )
+            self._conn.execute(
+                "INSERT OR REPLACE INTO maintenance_state(key, value, updated_at) VALUES (?, ?, ?)",
+                (
+                    EMBEDDER_STATE_KEY,
+                    json.dumps(
+                        {"version": EMBEDDER_VERSION, "dimensions": self.dimensions},
+                        sort_keys=True,
+                    ),
+                    now,
+                ),
             )
             self._conn.commit()
-        return len(rows)

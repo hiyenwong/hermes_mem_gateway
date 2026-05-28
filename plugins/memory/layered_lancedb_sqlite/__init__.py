@@ -73,7 +73,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         base = self._config.storage_base(hermes_home)
         self._store = SQLiteStore(base / "memory.sqlite3", dimensions=self._config.embedding_dimensions, index_path=base / "lancedb")
         self._store.bootstrap()
-        self._store.rebuild_index()
+        self._store.ensure_index_current()
 
     def system_prompt_block(self) -> str:
         return (

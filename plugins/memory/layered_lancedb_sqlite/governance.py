@@ -1,11 +1,9 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from hashlib import sha1
 from typing import Iterable
-import re
-
-from .policy import resolve_shared_intent
 
 
 EXPLICIT_MEMORY_RE = re.compile(r"\b(remember|memorize|my preference is|i prefer|my name is|call me)\b", re.I)

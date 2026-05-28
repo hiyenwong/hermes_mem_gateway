@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from .config import load_config, merge_overrides
 from .maintenance_service import compact_daily, compact_user_day

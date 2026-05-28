@@ -47,6 +47,8 @@ def embed_text(text: str, dimensions: int) -> list[float]:
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
+    if len(a) != len(b):
+        raise ValueError(f"vector length mismatch: {len(a)} vs {len(b)}")
     return sum(x * y for x, y in zip(a, b))
 
 
@@ -129,7 +131,10 @@ class SemanticIndex:
         for row in rows:
             if any(str(row.get(key, "")) != value for key, value in filters.items() if value):
                 continue
-            score = cosine_similarity(vector, list(row.get("vector", [])))
+            candidate = list(row.get("vector", []))
+            if len(candidate) != self.dimensions:
+                continue
+            score = cosine_similarity(vector, candidate)
             results.append(SearchResult(record=row, score=score))
         results.sort(key=lambda item: item.score, reverse=True)
         return results[:limit]
@@ -546,22 +551,25 @@ class SQLiteStore:
         principal_id: str,
         date: str,
         layer: str = "semantic_user",
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        params: list[Any] = [profile_id, workspace_id, principal_id, layer, f"{date}%"]
+        query = """
+            SELECT *
+            FROM memories
+            WHERE profile_id = ?
+              AND workspace_id = ?
+              AND principal_id = ?
+              AND layer = ?
+              AND status = 'active'
+              AND created_at LIKE ?
+            ORDER BY created_at ASC
+        """
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         with self._lock:
-            cursor = self._conn.execute(
-                """
-                SELECT *
-                FROM memories
-                WHERE profile_id = ?
-                  AND workspace_id = ?
-                  AND principal_id = ?
-                  AND layer = ?
-                  AND status = 'active'
-                  AND created_at LIKE ?
-                ORDER BY created_at ASC
-                """,
-                (profile_id, workspace_id, principal_id, layer, f"{date}%"),
-            )
+            cursor = self._conn.execute(query, params)
             rows = cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 

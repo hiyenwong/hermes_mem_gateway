@@ -13,7 +13,9 @@ from plugins.memory.layered_lancedb_sqlite.governance import fingerprint_text
 from plugins.memory.layered_lancedb_sqlite.storage import (
     EMBEDDER_STATE_KEY,
     EMBEDDER_VERSION,
+    SemanticIndex,
     SQLiteStore,
+    cosine_similarity,
     embed_text,
 )
 
@@ -103,6 +105,52 @@ def test_ensure_index_current_rebuilds_on_dimension_change(tmp_path: Path) -> No
         assert state == {"version": EMBEDDER_VERSION, "dimensions": 32}
     finally:
         store_b.close()
+
+
+def test_cosine_similarity_raises_on_dimension_mismatch() -> None:
+    with pytest.raises(ValueError):
+        cosine_similarity([1.0, 0.0, 0.0], [1.0, 0.0])
+
+
+def test_semantic_search_skips_rows_with_stale_vector_dimensions(tmp_path: Path) -> None:
+    index = SemanticIndex(tmp_path / "lancedb", dimensions=16)
+    fresh_vector = embed_text("matcha", 16)
+    index.upsert(
+        [
+            {
+                "memory_id": "fresh",
+                "profile_id": "p",
+                "workspace_id": "w",
+                "principal_id": "user-a",
+                "session_id": "s",
+                "layer": "semantic_user",
+                "kind": "explicit_memory",
+                "status": "active",
+                "content": "matcha",
+                "vector": fresh_vector,
+            },
+            {
+                "memory_id": "stale",
+                "profile_id": "p",
+                "workspace_id": "w",
+                "principal_id": "user-a",
+                "session_id": "s",
+                "layer": "semantic_user",
+                "kind": "explicit_memory",
+                "status": "active",
+                "content": "matcha",
+                "vector": [0.1, 0.2, 0.3],
+            },
+        ]
+    )
+    results = index.search(
+        "matcha",
+        filters={"profile_id": "p", "workspace_id": "w", "principal_id": "user-a", "layer": "semantic_user"},
+        limit=5,
+    )
+    memory_ids = [item.record["memory_id"] for item in results]
+    assert "fresh" in memory_ids
+    assert "stale" not in memory_ids
 
 
 def test_ensure_index_current_rebuilds_on_version_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -145,7 +145,7 @@ def test_maintenance_policy_allows_same_principal_and_blocks_cross_principal_or_
     config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a")
     namespace = maintenance_namespace(
         config,
-        session_id="maintenance:2026-05-28:user-a",
+        date="2026-05-28",
         user_id="user-a",
     )
 
@@ -163,7 +163,7 @@ def test_maintenance_namespace_rejects_display_name_only() -> None:
     config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a")
 
     with pytest.raises(ValueError):
-        maintenance_namespace(config, session_id="maintenance:today:Doris", user_name="Doris")
+        maintenance_namespace(config, date="2026-05-28", user_name="Doris")
 
 
 def test_compact_daily_does_not_double_count_skipped_as_completed(tmp_path: Path) -> None:
@@ -210,6 +210,28 @@ def test_compact_daily_uses_principal_source_over_at_sign_heuristic(tmp_path: Pa
         assert result["completed"] == 1
         assert result["failed"] == 0
         assert result["results"][0]["principal_id"] == oidc_subject
+    finally:
+        store.close()
+
+
+def test_compact_user_day_truncates_to_configured_limit(tmp_path: Path) -> None:
+    config = ProviderConfig(
+        profile_id="coder",
+        memory_workspace="workspace-a",
+        embedding_dimensions=32,
+        maintenance_max_records_per_day=2,
+    )
+    store = build_store(tmp_path, config)
+    try:
+        date = today_utc()
+        for content in ("alpha", "beta", "gamma", "delta"):
+            insert_user_memory(store, config, "user-a", f"Remember note {content}")
+
+        result = compact_user_day(store=store, config=config, date=date, user_id="user-a")
+
+        assert result.status == "completed"
+        assert result.truncated_to_limit == 2
+        assert result.processed_count == 2
     finally:
         store.close()
 

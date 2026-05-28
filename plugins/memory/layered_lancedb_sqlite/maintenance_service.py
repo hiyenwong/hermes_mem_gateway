@@ -25,6 +25,7 @@ class MaintenanceResult:
     output_memory_id: str = ""
     skipped: bool = False
     error: str = ""
+    truncated_to_limit: int = 0
 
     def to_mapping(self) -> dict[str, Any]:
         return asdict(self)
@@ -44,13 +45,14 @@ def maintenance_state_key(
 def maintenance_namespace(
     config: ProviderConfig,
     *,
-    session_id: str,
+    date: str,
     user_email: str = "",
     user_id: str = "",
     user_name: str = "",
 ) -> NamespaceContext:
     if not user_email and not user_id:
         raise ValueError("maintenance requires stable user_email or user_id")
+    session_id = f"maintenance:{date}:{user_email or user_id}"
     runtime = runtime_from_kwargs(
         session_id,
         platform="gateway",
@@ -81,7 +83,7 @@ def compact_user_day(
     _validate_date(date)
     namespace = maintenance_namespace(
         config,
-        session_id=f"maintenance:{date}:{user_email or user_id}",
+        date=date,
         user_email=user_email,
         user_id=user_id,
         user_name=user_name,
@@ -104,6 +106,7 @@ def compact_user_day(
             archived_count=int(existing_state.get("archived_count", 0)),
             output_memory_id=str(existing_state.get("output_memory_id", "")),
             skipped=True,
+            truncated_to_limit=int(existing_state.get("truncated_to_limit", 0)),
         )
 
     store.set_maintenance_state(
@@ -145,6 +148,7 @@ def compact_user_day(
             "processed_count": result.processed_count,
             "archived_count": result.archived_count,
             "output_memory_id": result.output_memory_id,
+            "truncated_to_limit": result.truncated_to_limit,
         },
     )
     return result
@@ -219,13 +223,20 @@ def _compact_started_user_day(
     date: str,
     key: str,
 ) -> MaintenanceResult:
+    limit = config.maintenance_max_records_per_day
+    fetch_limit = limit + 1 if limit and limit > 0 else None
     records = store.fetch_user_records_for_date(
         profile_id=namespace.profile_id,
         workspace_id=namespace.workspace_id,
         principal_id=namespace.principal_id,
         date=date,
         layer="semantic_user",
+        limit=fetch_limit,
     )
+    truncated_to_limit = 0
+    if fetch_limit and len(records) > limit:
+        truncated_to_limit = limit
+        records = records[:limit]
     archived_ids = _archive_duplicate_fingerprints(store, records, namespace=namespace, date=date, state_key=key)
     active_records = [record for record in records if record["status"] == "active" and record["id"] not in archived_ids]
     decision = maintenance_user_write_decision(
@@ -255,6 +266,7 @@ def _compact_started_user_day(
                 "maintenance_state_key": key,
                 "processed_count": len(active_records),
                 "archived_count": len(archived_ids),
+                "truncated_to_limit": truncated_to_limit,
             },
         )
         store.add_provenance(
@@ -268,6 +280,7 @@ def _compact_started_user_day(
                 **decision.metadata,
                 "maintenance_date": date,
                 "maintenance_state_key": key,
+                "truncated_to_limit": truncated_to_limit,
             },
         )
     return MaintenanceResult(
@@ -278,6 +291,7 @@ def _compact_started_user_day(
         processed_count=len(active_records),
         archived_count=len(archived_ids),
         output_memory_id=output_memory_id,
+        truncated_to_limit=truncated_to_limit,
     )
 
 

@@ -23,6 +23,7 @@ ENV_KEY_MAP = {
     "LAYERED_MEMORY_EMBEDDING_DIMENSIONS": "embedding_dimensions",
     "LAYERED_MEMORY_GATEWAY_PLATFORMS": "gateway_platforms",
     "LAYERED_MEMORY_STORAGE_ROOT": "storage_root",
+    "LAYERED_MEMORY_MAINTENANCE_MAX_RECORDS_PER_DAY": "maintenance_max_records_per_day",
 }
 
 
@@ -40,6 +41,7 @@ class ProviderConfig:
         default_factory=lambda: ["gateway", "discord", "slack", "telegram", "whatsapp"]
     )
     storage_root: str = ""
+    maintenance_max_records_per_day: int = 1000
 
     @classmethod
     def from_mapping(cls, values: Dict[str, Any] | None) -> "ProviderConfig":
@@ -91,7 +93,7 @@ def _coerce_env_value(key: str, value: str) -> Any:
         return coerce_bool(value)
     if key in {"promotion_min_score"}:
         return float(value)
-    if key in {"recall_limit_per_layer", "embedding_dimensions"}:
+    if key in {"recall_limit_per_layer", "embedding_dimensions", "maintenance_max_records_per_day"}:
         return int(value)
     if key in {"gateway_platforms", "shared_writer_emails"}:
         return [item.strip() for item in value.split(",") if item.strip()]

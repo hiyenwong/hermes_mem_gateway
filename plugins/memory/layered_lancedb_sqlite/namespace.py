@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import ProviderConfig
+from .identity_sidecar import read_identity as _read_sidecar
 
 
 SHARED_PRINCIPAL = "__shared__"
@@ -17,7 +18,9 @@ OPENWEBUI_HEADER_MAP = {
 _CURRENT_USER_BLOCK_RE = re.compile(r"#\s*Current User\b", re.IGNORECASE)
 _USER_INFO_EMAIL_RE = re.compile(r"^Email:\s*(\S+@\S+)\s*$", re.MULTILINE)
 _USER_INFO_NAME_RE = re.compile(r"^Name:\s*(.+?)\s*$", re.MULTILINE)
-_AUTHENTICATED_USER_RE = re.compile(r"authenticated user:\s*\*\*([^*]+)\*\*", re.IGNORECASE)
+_AUTHENTICATED_USER_RE = re.compile(
+    r"authenticated user:\s*\*\*([^*]+)\*\*", re.IGNORECASE
+)
 
 
 @dataclass
@@ -64,7 +67,11 @@ class NamespaceContext:
 def _canonicalize_headers(headers: Any) -> dict[str, str]:
     if not isinstance(headers, dict):
         return {}
-    return {str(key).strip().lower(): str(value).strip() for key, value in headers.items() if value is not None}
+    return {
+        str(key).strip().lower(): str(value).strip()
+        for key, value in headers.items()
+        if value is not None
+    }
 
 
 def _metadata_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -99,9 +106,7 @@ def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str, str]:
         or ""
     ).strip()
     user_id = str(
-        kwargs.get("user_id")
-        or headers.get(OPENWEBUI_HEADER_MAP["user_id"], "")
-        or ""
+        kwargs.get("user_id") or headers.get(OPENWEBUI_HEADER_MAP["user_id"], "") or ""
     ).strip()
     user_name = str(
         kwargs.get("user_name")
@@ -110,7 +115,9 @@ def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str, str]:
     ).strip()
     user_id_alt = str(kwargs.get("user_id_alt") or "").strip()
     if not (user_email or user_id) and _is_gatewayish_kwargs(kwargs):
-        body_email, body_id, body_name = _identity_from_messages(_messages_from_kwargs(kwargs))
+        body_email, body_id, body_name = _identity_from_messages(
+            _messages_from_kwargs(kwargs)
+        )
         user_email = user_email or body_email
         user_id = user_id or body_id
         user_name = user_name or body_name
@@ -180,7 +187,9 @@ def _identity_from_messages(messages: Any) -> tuple[str, str, str]:
     return user_email, user_id, user_name
 
 
-def resolve_namespace(config: ProviderConfig, runtime: RuntimeContext) -> NamespaceContext:
+def resolve_namespace(
+    config: ProviderConfig, runtime: RuntimeContext
+) -> NamespaceContext:
     workspace_id = runtime.agent_workspace or config.memory_workspace
     platform = runtime.platform or "cli"
     agent_context = runtime.agent_context or "primary"
@@ -226,7 +235,9 @@ def resolve_namespace(config: ProviderConfig, runtime: RuntimeContext) -> Namesp
     )
 
 
-def _gateway_principal(config: ProviderConfig, runtime: RuntimeContext) -> tuple[str, str]:
+def _gateway_principal(
+    config: ProviderConfig, runtime: RuntimeContext
+) -> tuple[str, str]:
     if runtime.user_email:
         return runtime.user_email, "user_email"
     if config.prefer_user_id_alt and runtime.user_id_alt:
@@ -241,6 +252,12 @@ def _gateway_principal(config: ProviderConfig, runtime: RuntimeContext) -> tuple
 def runtime_from_kwargs(session_id: str, **kwargs: Any) -> RuntimeContext:
     metadata = _metadata_from_kwargs(kwargs)
     user_email, user_id, user_name, user_id_alt = _identity_from_kwargs(kwargs)
+    if not (user_email or user_id) and _is_gatewayish_kwargs(kwargs):
+        sidecar = _read_sidecar(session_id)
+        if sidecar:
+            user_email = user_email or str(sidecar.get("email") or "")
+            user_id = user_id or str(sidecar.get("user_id") or "")
+            user_name = user_name or str(sidecar.get("name") or "")
     if user_email:
         principal_hint = "user_email"
     elif user_id:

@@ -28,7 +28,11 @@ def utc_now() -> str:
 
 
 def tokenize(text: str) -> list[str]:
-    return [token for token in "".join(ch.lower() if ch.isalnum() else " " for ch in text).split() if token]
+    return [
+        token
+        for token in "".join(ch.lower() if ch.isalnum() else " " for ch in text).split()
+        if token
+    ]
 
 
 def _stable_token_slot(token: str, dimensions: int) -> int:
@@ -113,13 +117,19 @@ class SemanticIndex:
 
     def remove(self, memory_id: str) -> None:
         with self._lock:
-            if self.backend == "lancedb" and self._table is not None:  # pragma: no cover
+            if (
+                self.backend == "lancedb" and self._table is not None
+            ):  # pragma: no cover
                 self._table.delete(f"memory_id = '{memory_id}'")
                 return
-            rows = [row for row in self._load_stub_rows() if row["memory_id"] != memory_id]
+            rows = [
+                row for row in self._load_stub_rows() if row["memory_id"] != memory_id
+            ]
             self._save_stub_rows(rows)
 
-    def search(self, query: str, *, filters: dict[str, str], limit: int) -> list[SearchResult]:
+    def search(
+        self, query: str, *, filters: dict[str, str], limit: int
+    ) -> list[SearchResult]:
         vector = embed_text(query, self.dimensions)
         rows: list[dict[str, Any]]
         if self.backend == "lancedb" and self._table is not None:  # pragma: no cover
@@ -129,7 +139,11 @@ class SemanticIndex:
 
         results: list[SearchResult] = []
         for row in rows:
-            if any(str(row.get(key, "")) != value for key, value in filters.items() if value):
+            if any(
+                str(row.get(key, "")) != value
+                for key, value in filters.items()
+                if value
+            ):
                 continue
             candidate = list(row.get("vector", []))
             if len(candidate) != self.dimensions:
@@ -378,11 +392,15 @@ class SQLiteStore:
             )
             self._conn.commit()
 
-    def archive(self, memory_id: str, metadata_update: dict[str, Any] | None = None) -> None:
+    def archive(
+        self, memory_id: str, metadata_update: dict[str, Any] | None = None
+    ) -> None:
         now = utc_now()
         with self._lock:
             if metadata_update:
-                cursor = self._conn.execute("SELECT metadata_json FROM memories WHERE id = ?", (memory_id,))
+                cursor = self._conn.execute(
+                    "SELECT metadata_json FROM memories WHERE id = ?", (memory_id,)
+                )
                 row = cursor.fetchone()
                 metadata = json.loads(row["metadata_json"] or "{}") if row else {}
                 metadata.update(metadata_update)
@@ -455,7 +473,7 @@ class SQLiteStore:
             params.append(f"{date}%")
         query = f"""
             SELECT * FROM memories
-            WHERE {' AND '.join(where)}
+            WHERE {" AND ".join(where)}
             ORDER BY reinforcement_count DESC, created_at DESC
             LIMIT ?
         """
@@ -494,15 +512,22 @@ class SQLiteStore:
                 layer=layer,
                 limit=limit,
             )
-            return [SearchResult(record=record, score=record["importance"]) for record in records]
+            return [
+                SearchResult(record=record, score=record["importance"])
+                for record in records
+            ]
 
         output: list[SearchResult] = []
         for match in matches:
             with self._lock:
-                cursor = self._conn.execute("SELECT * FROM memories WHERE id = ?", (match.record["memory_id"],))
+                cursor = self._conn.execute(
+                    "SELECT * FROM memories WHERE id = ?", (match.record["memory_id"],)
+                )
                 row = cursor.fetchone()
             if row is not None:
-                output.append(SearchResult(record=self._row_to_dict(row), score=match.score))
+                output.append(
+                    SearchResult(record=self._row_to_dict(row), score=match.score)
+                )
         return output
 
     def eligible_index_rows(self) -> list[dict[str, Any]]:
@@ -523,7 +548,9 @@ class SQLiteStore:
             payload.append(data)
         return payload
 
-    def list_user_principals(self, *, profile_id: str, workspace_id: str) -> list[dict[str, str]]:
+    def list_user_principals(
+        self, *, profile_id: str, workspace_id: str
+    ) -> list[dict[str, str]]:
         with self._lock:
             cursor = self._conn.execute(
                 """
@@ -580,7 +607,9 @@ class SQLiteStore:
 
     def get_maintenance_state(self, key: str) -> dict[str, Any] | None:
         with self._lock:
-            cursor = self._conn.execute("SELECT value FROM maintenance_state WHERE key = ?", (key,))
+            cursor = self._conn.execute(
+                "SELECT value FROM maintenance_state WHERE key = ?", (key,)
+            )
             row = cursor.fetchone()
         if row is None:
             return None
@@ -608,7 +637,10 @@ class SQLiteStore:
     def ensure_index_current(self) -> dict[str, Any]:
         current = {"version": EMBEDDER_VERSION, "dimensions": self.dimensions}
         state = self.get_maintenance_state(EMBEDDER_STATE_KEY) or {}
-        if state.get("version") == current["version"] and int(state.get("dimensions", -1)) == self.dimensions:
+        if (
+            state.get("version") == current["version"]
+            and int(state.get("dimensions", -1)) == self.dimensions
+        ):
             return {"rebuilt": False, **current}
         rebuilt_count = self.rebuild_index()
         return {"rebuilt": True, "rebuilt_count": rebuilt_count, **current}

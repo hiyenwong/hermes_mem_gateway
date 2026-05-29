@@ -8,12 +8,16 @@ from .policy import resolve_shared_intent, shared_write_allowed
 
 
 def format_memory_block(title: str, records: list[dict[str, Any]]) -> str:
-    lines = [f"{idx}. {record['content']}" for idx, record in enumerate(records, start=1)]
+    lines = [
+        f"{idx}. {record['content']}" for idx, record in enumerate(records, start=1)
+    ]
     return f"<memory-context>\n{title}:\n" + "\n".join(lines) + "\n</memory-context>"
 
 
 def gateway_prompt_context(config: ProviderConfig, namespace: NamespaceContext) -> str:
-    if not namespace.is_gateway or not (namespace.user_name or namespace.user_email or namespace.user_id):
+    if not namespace.is_gateway or not (
+        namespace.user_name or namespace.user_email or namespace.user_id
+    ):
         return ""
     shared_intent = resolve_shared_intent("", namespace.metadata_shared_intent)
     shared_authorized = shared_write_allowed(config, namespace, shared_intent)

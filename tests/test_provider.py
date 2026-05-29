@@ -36,7 +36,9 @@ def write_env(path: Path, values: dict[str, str]) -> None:
     path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
 
 
-def test_gateway_user_scope_blocks_unstable_identity_and_isolates_user_semantic(tmp_path: Path) -> None:
+def test_gateway_user_scope_blocks_unstable_identity_and_isolates_user_semantic(
+    tmp_path: Path,
+) -> None:
     provider = build_provider(tmp_path, platform="gateway", user_id="user-1")
     provider.sync_turn("Remember that I prefer dark roast coffee beans.", "Noted.")
     provider.shutdown()
@@ -55,16 +57,25 @@ def test_gateway_user_scope_blocks_unstable_identity_and_isolates_user_semantic(
     provider.sync_turn("Remember that I prefer jasmine tea.", "Noted.")
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
-        rows = conn.execute("SELECT layer, principal_id, content FROM memories WHERE layer LIKE 'semantic%'").fetchall()
+        rows = conn.execute(
+            "SELECT layer, principal_id, content FROM memories WHERE layer LIKE 'semantic%'"
+        ).fetchall()
     assert any(row[0] == "semantic_user" and row[1] == "user-1" for row in rows)
-    assert not any("jasmine tea" in row[2] and row[0] == "semantic_user" for row in rows)
+    assert not any(
+        "jasmine tea" in row[2] and row[0] == "semantic_user" for row in rows
+    )
 
 
 def test_non_gateway_shared_recall_and_session_switch_rotation(tmp_path: Path) -> None:
     provider = build_provider(tmp_path, platform="cli")
-    provider.sync_turn("Remember that the deployment window is Fridays at 5 PM UTC.", "Will remember.")
+    provider.sync_turn(
+        "Remember that the deployment window is Fridays at 5 PM UTC.", "Will remember."
+    )
     provider.on_session_switch("session-2", reset=True, platform="cli")
     provider.sync_turn("This is only temporary for this session.", "Okay.")
     recall = provider.prefetch("deployment window")
@@ -77,37 +88,58 @@ def test_non_gateway_shared_recall_and_session_switch_rotation(tmp_path: Path) -
 
 
 def test_non_primary_context_cannot_promote_durable_memory(tmp_path: Path) -> None:
-    provider = build_provider(tmp_path, platform="gateway", user_id="user-1", agent_context="subagent")
+    provider = build_provider(
+        tmp_path, platform="gateway", user_id="user-1", agent_context="subagent"
+    )
     provider.sync_turn("Remember that my legal name is Alicia Example.", "Noted.")
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         rows = conn.execute("SELECT layer FROM memories").fetchall()
     assert rows
     assert all(row[0] == "episodic" for row in rows)
 
 
-def test_non_primary_memory_write_does_not_create_shared_durable_memory(tmp_path: Path) -> None:
+def test_non_primary_memory_write_does_not_create_shared_durable_memory(
+    tmp_path: Path,
+) -> None:
     provider = build_provider(tmp_path, platform="cli", agent_context="subagent")
-    provider.on_memory_write("add", "memory", "The team deploys from a restricted jump host.")
+    provider.on_memory_write(
+        "add", "memory", "The team deploys from a restricted jump host."
+    )
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
-        rows = conn.execute("SELECT layer FROM memories WHERE layer LIKE 'semantic%'").fetchall()
+        rows = conn.execute(
+            "SELECT layer FROM memories WHERE layer LIKE 'semantic%'"
+        ).fetchall()
     assert rows == []
 
 
 def test_index_rebuild_and_builtin_memory_mirroring(tmp_path: Path) -> None:
     provider = build_provider(tmp_path, platform="cli")
-    provider.on_memory_write("add", "memory", "The project uses uv for Python packaging.", {"write_origin": "builtin"})
+    provider.on_memory_write(
+        "add",
+        "memory",
+        "The project uses uv for Python packaging.",
+        {"write_origin": "builtin"},
+    )
     provider.shutdown()
 
     provider = build_provider(tmp_path, platform="cli")
     validate = provider.validate_storage()
     assert validate["memory_count"] >= 1
-    base = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/lancedb"
+    base = (
+        tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/lancedb"
+    )
     stub_index = base / "semantic_index.json"
     if stub_index.exists():
         stub_index.unlink()
@@ -120,11 +152,18 @@ def test_index_rebuild_and_builtin_memory_mirroring(tmp_path: Path) -> None:
 
 def test_supersession_replaces_older_shared_memory(tmp_path: Path) -> None:
     provider = build_provider(tmp_path, platform="cli")
-    provider.sync_turn("Remember that the API base URL is https://api-v1.internal.example.", "Stored.")
-    provider.sync_turn("Remember that the API base URL is https://api.internal.example.", "Updated.")
+    provider.sync_turn(
+        "Remember that the API base URL is https://api-v1.internal.example.", "Stored."
+    )
+    provider.sync_turn(
+        "Remember that the API base URL is https://api.internal.example.", "Updated."
+    )
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         rows = conn.execute(
             "SELECT content, status, supersedes_id, superseded_by_id FROM memories WHERE layer = 'semantic_shared' ORDER BY created_at"
@@ -153,7 +192,10 @@ def test_chinese_explicit_memory_promotes_to_semantic_user(tmp_path: Path) -> No
     provider.sync_turn("请记住，我的项目用 uv 做包管理。", "好的，已记下。")
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         rows = conn.execute(
             "SELECT layer, principal_id, content FROM memories WHERE layer = 'semantic_user'"
@@ -161,12 +203,18 @@ def test_chinese_explicit_memory_promotes_to_semantic_user(tmp_path: Path) -> No
     assert any(row[1] == "user-zh" and "uv 做包管理" in row[2] for row in rows)
 
 
-def test_recall_returns_today_other_session_episodic_for_gateway_user(tmp_path: Path) -> None:
-    provider = build_provider(tmp_path, platform="gateway", user_id="user-x", session_id="session-old")
+def test_recall_returns_today_other_session_episodic_for_gateway_user(
+    tmp_path: Path,
+) -> None:
+    provider = build_provider(
+        tmp_path, platform="gateway", user_id="user-x", session_id="session-old"
+    )
     provider.sync_turn("昨晚那场会议的纪要发到飞书共享文件夹了", "好的，知道了。")
     provider.shutdown()
 
-    provider = build_provider(tmp_path, platform="gateway", user_id="user-x", session_id="session-new")
+    provider = build_provider(
+        tmp_path, platform="gateway", user_id="user-x", session_id="session-new"
+    )
     recall = provider.prefetch("飞书")
     assert "Today's cross-session memory" in recall
     assert "飞书共享文件夹" in recall
@@ -174,7 +222,9 @@ def test_recall_returns_today_other_session_episodic_for_gateway_user(tmp_path: 
 
 
 def test_recall_other_session_scope_excludes_current_session(tmp_path: Path) -> None:
-    provider = build_provider(tmp_path, platform="gateway", user_id="user-y", session_id="session-only")
+    provider = build_provider(
+        tmp_path, platform="gateway", user_id="user-y", session_id="session-only"
+    )
     provider.sync_turn("当前 session 里随便说点东西", "OK。")
     recall = provider.prefetch("session")
     assert "Today's cross-session memory" not in recall
@@ -199,7 +249,12 @@ def test_hermes_home_env_can_define_memory_workspace(tmp_path: Path) -> None:
     write_env(tmp_path / ".env", {"LAYERED_MEMORY_WORKSPACE": "workspace-home-env"})
 
     provider = LayeredLanceDBSQLiteMemoryProvider()
-    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", agent_workspace="")
+    provider.initialize(
+        "session-1",
+        hermes_home=str(tmp_path),
+        agent_identity="coder",
+        agent_workspace="",
+    )
     try:
         assert provider._namespace.workspace_id == "workspace-home-env"
     finally:
@@ -214,7 +269,12 @@ def test_profile_env_overrides_hermes_home_env(tmp_path: Path) -> None:
     )
 
     provider = LayeredLanceDBSQLiteMemoryProvider()
-    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", agent_workspace="")
+    provider.initialize(
+        "session-1",
+        hermes_home=str(tmp_path),
+        agent_identity="coder",
+        agent_workspace="",
+    )
     try:
         assert provider._namespace.workspace_id == "workspace-profile-env"
     finally:
@@ -253,7 +313,10 @@ def test_openwebui_email_header_becomes_private_principal(tmp_path: Path) -> Non
     provider.sync_turn("Remember that I prefer jasmine tea.", "Stored.")
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         rows = conn.execute(
             "SELECT principal_id, layer FROM memories WHERE layer = 'semantic_user'"
@@ -273,7 +336,10 @@ def test_openwebui_user_id_fallback_does_not_use_display_name(tmp_path: Path) ->
     provider.sync_turn("Remember that I prefer oolong tea.", "Stored.")
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         rows = conn.execute(
             "SELECT principal_id FROM memories WHERE layer = 'semantic_user'"
@@ -292,7 +358,10 @@ def test_gateway_shared_request_without_allowlist_stays_private(tmp_path: Path) 
     provider.sync_turn("Remember this as shared: the project uses uv.", "Stored.")
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         rows = conn.execute(
             "SELECT principal_id, layer FROM memories WHERE layer LIKE 'semantic_%' ORDER BY layer"
@@ -311,11 +380,16 @@ def test_allowlisted_gateway_user_can_write_shared_via_metadata(tmp_path: Path) 
         request_metadata={"shared_memory": True},
         config_overrides={"shared_writer_emails": ["admin@example.com"]},
     )
-    provider.sync_turn("Remember that the shared deployment checklist lives in Notion.", "Stored.")
+    provider.sync_turn(
+        "Remember that the shared deployment checklist lives in Notion.", "Stored."
+    )
     recall = provider.prefetch("deployment checklist")
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         memory_rows = conn.execute(
             "SELECT principal_id, layer, metadata_json FROM memories WHERE layer = 'semantic_shared'"
@@ -326,12 +400,17 @@ def test_allowlisted_gateway_user_can_write_shared_via_metadata(tmp_path: Path) 
     assert len(memory_rows) == 1
     assert memory_rows[0][0] == "__shared__"
     assert '"shared_authorized": true' in memory_rows[0][2]
-    assert provenance_rows and '"shared_request_source": "metadata"' in provenance_rows[0][0]
+    assert (
+        provenance_rows
+        and '"shared_request_source": "metadata"' in provenance_rows[0][0]
+    )
     assert "display_name: Admin Doris" in recall
     assert "X-OpenWebUI-User-Email" not in recall
 
 
-def test_metadata_shared_intent_overrides_natural_language_shared_request(tmp_path: Path) -> None:
+def test_metadata_shared_intent_overrides_natural_language_shared_request(
+    tmp_path: Path,
+) -> None:
     provider = build_provider(
         tmp_path,
         platform="gateway",
@@ -339,10 +418,16 @@ def test_metadata_shared_intent_overrides_natural_language_shared_request(tmp_pa
         request_metadata={"shared_memory": False},
         config_overrides={"shared_writer_emails": ["admin@example.com"]},
     )
-    provider.sync_turn("Remember this as shared: the staging API base URL is https://api.internal.example.", "Stored.")
+    provider.sync_turn(
+        "Remember this as shared: the staging API base URL is https://api.internal.example.",
+        "Stored.",
+    )
     provider.shutdown()
 
-    sqlite_path = tmp_path / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
     with sqlite3.connect(sqlite_path) as conn:
         rows = conn.execute(
             "SELECT principal_id, layer, metadata_json FROM memories WHERE layer LIKE 'semantic_%'"

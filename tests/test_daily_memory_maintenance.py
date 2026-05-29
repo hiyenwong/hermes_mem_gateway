@@ -31,12 +31,18 @@ def today_utc() -> str:
 
 def build_store(tmp_path: Path, config: ProviderConfig) -> SQLiteStore:
     base = config.storage_base(str(tmp_path))
-    store = SQLiteStore(base / "memory.sqlite3", dimensions=config.embedding_dimensions, index_path=base / "lancedb")
+    store = SQLiteStore(
+        base / "memory.sqlite3",
+        dimensions=config.embedding_dimensions,
+        index_path=base / "lancedb",
+    )
     store.bootstrap()
     return store
 
 
-def insert_user_memory(store: SQLiteStore, config: ProviderConfig, principal: str, content: str) -> str:
+def insert_user_memory(
+    store: SQLiteStore, config: ProviderConfig, principal: str, content: str
+) -> str:
     return store.insert_memory(
         profile_id=config.profile_id,
         workspace_id=config.memory_workspace,
@@ -52,14 +58,22 @@ def insert_user_memory(store: SQLiteStore, config: ProviderConfig, principal: st
 
 
 def test_compact_user_day_preserves_principal_isolation(tmp_path: Path) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     try:
         date = today_utc()
-        insert_user_memory(store, config, "user-a", "Remember that I prefer dark roast coffee.")
-        insert_user_memory(store, config, "user-b", "Remember that I prefer jasmine tea.")
+        insert_user_memory(
+            store, config, "user-a", "Remember that I prefer dark roast coffee."
+        )
+        insert_user_memory(
+            store, config, "user-b", "Remember that I prefer jasmine tea."
+        )
 
-        result = compact_user_day(store=store, config=config, date=date, user_id="user-a")
+        result = compact_user_day(
+            store=store, config=config, date=date, user_id="user-a"
+        )
 
         assert result.status == "completed"
         assert result.principal_id == "user-a"
@@ -82,8 +96,12 @@ def test_compact_user_day_preserves_principal_isolation(tmp_path: Path) -> None:
         store.close()
 
 
-def test_compact_user_day_is_idempotent_and_failed_jobs_retry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+def test_compact_user_day_is_idempotent_and_failed_jobs_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     try:
         date = today_utc()
@@ -108,8 +126,12 @@ def test_compact_user_day_is_idempotent_and_failed_jobs_retry(tmp_path: Path, mo
         assert store.get_maintenance_state(key)["status"] == "failed"
 
         monkeypatch.setattr(store, "fetch_user_records_for_date", original_fetch)
-        first = compact_user_day(store=store, config=config, date=date, user_id="user-a")
-        second = compact_user_day(store=store, config=config, date=date, user_id="user-a")
+        first = compact_user_day(
+            store=store, config=config, date=date, user_id="user-a"
+        )
+        second = compact_user_day(
+            store=store, config=config, date=date, user_id="user-a"
+        )
 
         assert first.status == "completed"
         assert second.skipped is True
@@ -125,11 +147,15 @@ def test_compact_user_day_is_idempotent_and_failed_jobs_retry(tmp_path: Path, mo
 
 
 def test_compact_daily_enumerates_user_principals(tmp_path: Path) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     try:
         date = today_utc()
-        insert_user_memory(store, config, "a@example.com", "Remember that I prefer green tea.")
+        insert_user_memory(
+            store, config, "a@example.com", "Remember that I prefer green tea."
+        )
         insert_user_memory(store, config, "user-b", "Remember that I prefer black tea.")
 
         result = compact_daily(store=store, config=config, date=date)
@@ -141,7 +167,9 @@ def test_compact_daily_enumerates_user_principals(tmp_path: Path) -> None:
         store.close()
 
 
-def test_maintenance_policy_allows_same_principal_and_blocks_cross_principal_or_shared() -> None:
+def test_maintenance_policy_allows_same_principal_and_blocks_cross_principal_or_shared() -> (
+    None
+):
     config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a")
     namespace = maintenance_namespace(
         config,
@@ -166,8 +194,12 @@ def test_maintenance_namespace_rejects_display_name_only() -> None:
         maintenance_namespace(config, date="2026-05-28", user_name="Doris")
 
 
-def test_compact_daily_does_not_double_count_skipped_as_completed(tmp_path: Path) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+def test_compact_daily_does_not_double_count_skipped_as_completed(
+    tmp_path: Path,
+) -> None:
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     try:
         date = today_utc()
@@ -180,13 +212,20 @@ def test_compact_daily_does_not_double_count_skipped_as_completed(tmp_path: Path
         assert first["skipped"] == 0
         assert second["completed"] == 0
         assert second["skipped"] == 1
-        assert second["completed"] + second["failed"] + second["skipped"] == second["processed_principals"]
+        assert (
+            second["completed"] + second["failed"] + second["skipped"]
+            == second["processed_principals"]
+        )
     finally:
         store.close()
 
 
-def test_compact_daily_uses_principal_source_over_at_sign_heuristic(tmp_path: Path) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+def test_compact_daily_uses_principal_source_over_at_sign_heuristic(
+    tmp_path: Path,
+) -> None:
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     try:
         date = today_utc()
@@ -217,7 +256,9 @@ def test_compact_daily_uses_principal_source_over_at_sign_heuristic(tmp_path: Pa
 def test_compact_daily_failure_result_shares_shape_with_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     try:
         date = today_utc()
@@ -237,10 +278,16 @@ def test_compact_daily_failure_result_shares_shape_with_success(
 
         assert summary["completed"] == 1
         assert summary["failed"] == 1
-        success_keys = next(item.keys() for item in summary["results"] if item["status"] == "completed")
-        failure_keys = next(item.keys() for item in summary["results"] if item["status"] == "failed")
+        success_keys = next(
+            item.keys() for item in summary["results"] if item["status"] == "completed"
+        )
+        failure_keys = next(
+            item.keys() for item in summary["results"] if item["status"] == "failed"
+        )
         assert set(success_keys) == set(failure_keys)
-        failure_entry = next(item for item in summary["results"] if item["status"] == "failed")
+        failure_entry = next(
+            item for item in summary["results"] if item["status"] == "failed"
+        )
         assert failure_entry["principal_id"] == "user-bad"
         assert failure_entry["error"] == "simulated failure"
         assert failure_entry["processed_count"] == 0
@@ -250,12 +297,16 @@ def test_compact_daily_failure_result_shares_shape_with_success(
 
 
 def test_archive_merges_metadata_when_provided(tmp_path: Path) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     try:
         memory_id = insert_user_memory(store, config, "user-a", "Remember pu-erh.")
 
-        store.archive(memory_id, {"reason": "supersession_test", "decided_by": "unit-test"})
+        store.archive(
+            memory_id, {"reason": "supersession_test", "decided_by": "unit-test"}
+        )
 
         with sqlite3.connect(store.db_path) as conn:
             row = conn.execute(
@@ -266,7 +317,6 @@ def test_archive_merges_metadata_when_provided(tmp_path: Path) -> None:
         metadata = json.loads(row[1])
         assert metadata["reason"] == "supersession_test"
         assert metadata["decided_by"] == "unit-test"
-
 
         plain_id = insert_user_memory(store, config, "user-b", "Remember mate.")
         store.archive(plain_id)
@@ -294,7 +344,9 @@ def test_compact_user_day_truncates_to_configured_limit(tmp_path: Path) -> None:
         for content in ("alpha", "beta", "gamma", "delta"):
             insert_user_memory(store, config, "user-a", f"Remember note {content}")
 
-        result = compact_user_day(store=store, config=config, date=date, user_id="user-a")
+        result = compact_user_day(
+            store=store, config=config, date=date, user_id="user-a"
+        )
 
         assert result.status == "completed"
         assert result.truncated_to_limit == 2
@@ -321,7 +373,9 @@ def test_compact_daily_handles_user_id_alt_principals(tmp_path: Path) -> None:
             layer="semantic_user",
             kind="explicit_memory",
             content="Cross-platform user remembers their favorite tea.",
-            fingerprint=fingerprint_text("Cross-platform user remembers their favorite tea."),
+            fingerprint=fingerprint_text(
+                "Cross-platform user remembers their favorite tea."
+            ),
             source="test",
             importance=0.9,
             metadata={"principal_source": "user_id_alt"},
@@ -338,7 +392,9 @@ def test_compact_daily_handles_user_id_alt_principals(tmp_path: Path) -> None:
 
 def test_shared_intent_matches_chinese_phrase_in_natural_text() -> None:
     chinese_intent = resolve_shared_intent("请保存为共享记忆，让其他人也能用", None)
-    english_intent = resolve_shared_intent("Please save this to shared memory now.", None)
+    english_intent = resolve_shared_intent(
+        "Please save this to shared memory now.", None
+    )
     unrelated_intent = resolve_shared_intent("今天天气很好", None)
 
     assert chinese_intent.requested is True
@@ -347,7 +403,9 @@ def test_shared_intent_matches_chinese_phrase_in_natural_text() -> None:
     assert unrelated_intent.requested is False
 
 
-def test_cli_compact_user_and_compact_daily(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_compact_user_and_compact_daily(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     save_config(
         {
             "profile_id": "coder",
@@ -356,11 +414,15 @@ def test_cli_compact_user_and_compact_daily(tmp_path: Path, capsys: pytest.Captu
         },
         str(tmp_path),
     )
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store = build_store(tmp_path, config)
     date = today_utc()
     try:
-        insert_user_memory(store, config, "cli-user", "Remember that I prefer CLI tests.")
+        insert_user_memory(
+            store, config, "cli-user", "Remember that I prefer CLI tests."
+        )
     finally:
         store.close()
 

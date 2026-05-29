@@ -7,7 +7,13 @@ from .prompt_format import format_memory_block, gateway_prompt_context
 from .storage import SQLiteStore
 
 
-def assemble_recall(query: str, *, config: ProviderConfig, namespace: NamespaceContext, store: SQLiteStore) -> str:
+def assemble_recall(
+    query: str,
+    *,
+    config: ProviderConfig,
+    namespace: NamespaceContext,
+    store: SQLiteStore,
+) -> str:
     blocks: list[str] = []
     gateway_context = gateway_prompt_context(config, namespace)
     if gateway_context:
@@ -25,7 +31,9 @@ def assemble_recall(query: str, *, config: ProviderConfig, namespace: NamespaceC
                 limit=config.recall_limit_per_layer,
             )
             if hits:
-                blocks.append(format_memory_block(scope.title, [hit.record for hit in hits]))
+                blocks.append(
+                    format_memory_block(scope.title, [hit.record for hit in hits])
+                )
                 for hit in hits:
                     store.reinforce(hit.record["id"])
             continue

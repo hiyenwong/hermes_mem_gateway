@@ -25,7 +25,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def _build_store(tmp_path: Path, config: ProviderConfig) -> SQLiteStore:
     base = config.storage_base(str(tmp_path))
-    store = SQLiteStore(base / "memory.sqlite3", dimensions=config.embedding_dimensions, index_path=base / "lancedb")
+    store = SQLiteStore(
+        base / "memory.sqlite3",
+        dimensions=config.embedding_dimensions,
+        index_path=base / "lancedb",
+    )
     store.bootstrap()
     return store
 
@@ -49,7 +53,9 @@ def test_embed_text_is_process_independent() -> None:
 
 
 def test_ensure_index_current_skips_rebuild_when_state_matches(tmp_path: Path) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=16)
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=16
+    )
     store = _build_store(tmp_path, config)
     try:
         store.insert_memory(
@@ -76,7 +82,9 @@ def test_ensure_index_current_skips_rebuild_when_state_matches(tmp_path: Path) -
 
 
 def test_ensure_index_current_rebuilds_on_dimension_change(tmp_path: Path) -> None:
-    config_a = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=16)
+    config_a = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=16
+    )
     store_a = _build_store(tmp_path, config_a)
     try:
         store_a.insert_memory(
@@ -95,7 +103,9 @@ def test_ensure_index_current_rebuilds_on_dimension_change(tmp_path: Path) -> No
     finally:
         store_a.close()
 
-    config_b = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32)
+    config_b = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=32
+    )
     store_b = _build_store(tmp_path, config_b)
     try:
         result = store_b.ensure_index_current()
@@ -112,7 +122,9 @@ def test_cosine_similarity_raises_on_dimension_mismatch() -> None:
         cosine_similarity([1.0, 0.0, 0.0], [1.0, 0.0])
 
 
-def test_semantic_search_skips_rows_with_stale_vector_dimensions(tmp_path: Path) -> None:
+def test_semantic_search_skips_rows_with_stale_vector_dimensions(
+    tmp_path: Path,
+) -> None:
     index = SemanticIndex(tmp_path / "lancedb", dimensions=16)
     fresh_vector = embed_text("matcha", 16)
     index.upsert(
@@ -145,7 +157,12 @@ def test_semantic_search_skips_rows_with_stale_vector_dimensions(tmp_path: Path)
     )
     results = index.search(
         "matcha",
-        filters={"profile_id": "p", "workspace_id": "w", "principal_id": "user-a", "layer": "semantic_user"},
+        filters={
+            "profile_id": "p",
+            "workspace_id": "w",
+            "principal_id": "user-a",
+            "layer": "semantic_user",
+        },
         limit=5,
     )
     memory_ids = [item.record["memory_id"] for item in results]
@@ -153,8 +170,12 @@ def test_semantic_search_skips_rows_with_stale_vector_dimensions(tmp_path: Path)
     assert "stale" not in memory_ids
 
 
-def test_ensure_index_current_rebuilds_on_version_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = ProviderConfig(profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=16)
+def test_ensure_index_current_rebuilds_on_version_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = ProviderConfig(
+        profile_id="coder", memory_workspace="workspace-a", embedding_dimensions=16
+    )
     store = _build_store(tmp_path, config)
     try:
         store.insert_memory(

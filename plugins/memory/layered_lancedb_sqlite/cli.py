@@ -11,24 +11,46 @@ def register_cli(subparser) -> None:
     validate = subparser.add_parser("validate", help="Validate provider storage state")
     validate.set_defaults(_layered_memory_command="validate")
 
-    rebuild = subparser.add_parser("rebuild-index", help="Rebuild semantic index from SQLite")
+    rebuild = subparser.add_parser(
+        "rebuild-index", help="Rebuild semantic index from SQLite"
+    )
     rebuild.set_defaults(_layered_memory_command="rebuild-index")
 
-    compact_user = subparser.add_parser("compact-user", help="Run daily maintenance for one Gateway user")
+    compact_user = subparser.add_parser(
+        "compact-user", help="Run daily maintenance for one Gateway user"
+    )
     compact_user.add_argument("--profile", default="", help="Profile identifier")
     compact_user.add_argument("--workspace", default="", help="Workspace identifier")
-    compact_user.add_argument("--date", required=True, help="Maintenance date in YYYY-MM-DD format")
-    compact_user.add_argument("--user-email", default="", help="Stable Gateway user email")
+    compact_user.add_argument(
+        "--date", required=True, help="Maintenance date in YYYY-MM-DD format"
+    )
+    compact_user.add_argument(
+        "--user-email", default="", help="Stable Gateway user email"
+    )
     compact_user.add_argument("--user-id", default="", help="Stable Gateway user id")
-    compact_user.add_argument("--user-name", default="", help="Gateway display name for provenance only")
-    compact_user.add_argument("--force", action="store_true", help="Re-run a completed maintenance key")
+    compact_user.add_argument(
+        "--user-name", default="", help="Gateway display name for provenance only"
+    )
+    compact_user.add_argument(
+        "--force", action="store_true", help="Re-run a completed maintenance key"
+    )
     compact_user.set_defaults(_layered_memory_command="compact-user")
 
-    compact_daily_parser = subparser.add_parser("compact-daily", help="Run daily maintenance for all known user principals")
-    compact_daily_parser.add_argument("--profile", default="", help="Profile identifier")
-    compact_daily_parser.add_argument("--workspace", default="", help="Workspace identifier")
-    compact_daily_parser.add_argument("--date", required=True, help="Maintenance date in YYYY-MM-DD format")
-    compact_daily_parser.add_argument("--force", action="store_true", help="Re-run completed maintenance keys")
+    compact_daily_parser = subparser.add_parser(
+        "compact-daily", help="Run daily maintenance for all known user principals"
+    )
+    compact_daily_parser.add_argument(
+        "--profile", default="", help="Profile identifier"
+    )
+    compact_daily_parser.add_argument(
+        "--workspace", default="", help="Workspace identifier"
+    )
+    compact_daily_parser.add_argument(
+        "--date", required=True, help="Maintenance date in YYYY-MM-DD format"
+    )
+    compact_daily_parser.add_argument(
+        "--force", action="store_true", help="Re-run completed maintenance keys"
+    )
     compact_daily_parser.set_defaults(_layered_memory_command="compact-daily")
 
 
@@ -41,7 +63,11 @@ def run_cli(args, hermes_home: str) -> int:
         ],
     )
     base = config.storage_base(hermes_home)
-    store = SQLiteStore(base / "memory.sqlite3", dimensions=config.embedding_dimensions, index_path=base / "lancedb")
+    store = SQLiteStore(
+        base / "memory.sqlite3",
+        dimensions=config.embedding_dimensions,
+        index_path=base / "lancedb",
+    )
     store.bootstrap()
     try:
         command = getattr(args, "_layered_memory_command", "")

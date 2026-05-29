@@ -19,7 +19,11 @@ def consolidate_turn(
         if candidate.confidence < config.promotion_min_score:
             continue
         decision = promotion_write_decision(config, namespace, content=user)
-        if not decision.allowed or decision.layer is None or decision.principal_id is None:
+        if (
+            not decision.allowed
+            or decision.layer is None
+            or decision.principal_id is None
+        ):
             continue
         existing = store.fetch_existing_durable(
             profile_id=namespace.profile_id,
@@ -27,7 +31,10 @@ def consolidate_turn(
             principal_id=decision.principal_id,
             layer=decision.layer,
         )
-        exact = next((row for row in existing if row["fingerprint"] == candidate.fingerprint), None)
+        exact = next(
+            (row for row in existing if row["fingerprint"] == candidate.fingerprint),
+            None,
+        )
         if exact:
             store.reinforce(exact["id"])
             continue
@@ -60,6 +67,11 @@ def consolidate_turn(
             metadata=decision.metadata,
         )
         if candidate.confidence < 0.9 and decision.layer.startswith("semantic"):
-            score = rank_record(candidate.confidence, reinforcement_count=0, access_count=0, archived=False)
+            score = rank_record(
+                candidate.confidence,
+                reinforcement_count=0,
+                access_count=0,
+                archived=False,
+            )
             if score < config.promotion_min_score:
                 store.archive(memory_id)

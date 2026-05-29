@@ -6,7 +6,9 @@ from typing import Any, Callable
 
 class BackgroundTasks:
     def __init__(self) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="layered-memory")
+        self._executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="layered-memory"
+        )
         self._pending: list[Future[Any]] = []
         self.errors: list[BaseException] = []
 

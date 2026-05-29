@@ -56,7 +56,11 @@ class ProviderConfig:
         return asdict(self)
 
     def storage_base(self, hermes_home: str) -> Path:
-        root = Path(self.storage_root) if self.storage_root else Path(hermes_home) / CONFIG_DIRNAME
+        root = (
+            Path(self.storage_root)
+            if self.storage_root
+            else Path(hermes_home) / CONFIG_DIRNAME
+        )
         return root / self.profile_id / self.memory_workspace
 
 
@@ -89,11 +93,19 @@ def parse_env_file(path: Path) -> Dict[str, str]:
 
 
 def _coerce_env_value(key: str, value: str) -> Any:
-    if key in {"allow_non_primary_durable_writes", "shared_explicit_required", "prefer_user_id_alt"}:
+    if key in {
+        "allow_non_primary_durable_writes",
+        "shared_explicit_required",
+        "prefer_user_id_alt",
+    }:
         return coerce_bool(value)
     if key in {"promotion_min_score"}:
         return float(value)
-    if key in {"recall_limit_per_layer", "embedding_dimensions", "maintenance_max_records_per_day"}:
+    if key in {
+        "recall_limit_per_layer",
+        "embedding_dimensions",
+        "maintenance_max_records_per_day",
+    }:
         return int(value)
     if key in {"gateway_platforms", "shared_writer_emails"}:
         return [item.strip() for item in value.split(",") if item.strip()]
@@ -102,7 +114,10 @@ def _coerce_env_value(key: str, value: str) -> Any:
 
 def load_env_overrides(hermes_home: str, profile_id: str = "") -> Dict[str, Any]:
     merged: Dict[str, Any] = {}
-    for path in [hermes_env_path(hermes_home), profile_env_path(hermes_home, profile_id) if profile_id else None]:
+    for path in [
+        hermes_env_path(hermes_home),
+        profile_env_path(hermes_home, profile_id) if profile_id else None,
+    ]:
         if path is None:
             continue
         raw = parse_env_file(path)
@@ -141,7 +156,9 @@ def coerce_bool(value: Any) -> bool:
     return bool(value)
 
 
-def merge_overrides(config: ProviderConfig, values: Iterable[tuple[str, Any]]) -> ProviderConfig:
+def merge_overrides(
+    config: ProviderConfig, values: Iterable[tuple[str, Any]]
+) -> ProviderConfig:
     data = config.to_mapping()
     for key, value in values:
         if value is None or key not in data:

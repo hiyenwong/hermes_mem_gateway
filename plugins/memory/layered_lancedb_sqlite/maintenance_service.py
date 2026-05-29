@@ -52,7 +52,9 @@ def maintenance_namespace(
     user_id_alt: str = "",
 ) -> NamespaceContext:
     if not (user_email or user_id or user_id_alt):
-        raise ValueError("maintenance requires stable user_email, user_id, or user_id_alt")
+        raise ValueError(
+            "maintenance requires stable user_email, user_id, or user_id_alt"
+        )
     principal_hint = user_email or user_id or user_id_alt
     session_id = f"maintenance:{date}:{principal_hint}"
     runtime = runtime_from_kwargs(
@@ -126,7 +128,9 @@ def compact_user_day(
         },
     )
     try:
-        result = _compact_started_user_day(store=store, config=config, namespace=namespace, date=date, key=key)
+        result = _compact_started_user_day(
+            store=store, config=config, namespace=namespace, date=date, key=key
+        )
     except Exception as exc:
         store.set_maintenance_state(
             key,
@@ -166,14 +170,18 @@ def compact_daily(
     date: str,
     force: bool = False,
 ) -> dict[str, Any]:
-    principals = store.list_user_principals(profile_id=config.profile_id, workspace_id=config.memory_workspace)
+    principals = store.list_user_principals(
+        profile_id=config.profile_id, workspace_id=config.memory_workspace
+    )
     results: list[dict[str, Any]] = []
     completed = 0
     failed = 0
     skipped = 0
     for principal in principals:
         principal_id = principal["principal_id"]
-        user_email, user_id, user_id_alt = _split_principal(principal_id, principal["principal_source"])
+        user_email, user_id, user_id_alt = _split_principal(
+            principal_id, principal["principal_source"]
+        )
         try:
             result = compact_user_day(
                 store=store,
@@ -252,8 +260,14 @@ def _compact_started_user_day(
     if fetch_limit and len(records) > limit:
         truncated_to_limit = limit
         records = records[:limit]
-    archived_ids = _archive_duplicate_fingerprints(store, records, namespace=namespace, date=date, state_key=key)
-    active_records = [record for record in records if record["status"] == "active" and record["id"] not in archived_ids]
+    archived_ids = _archive_duplicate_fingerprints(
+        store, records, namespace=namespace, date=date, state_key=key
+    )
+    active_records = [
+        record
+        for record in records
+        if record["status"] == "active" and record["id"] not in archived_ids
+    ]
     decision = maintenance_user_write_decision(
         namespace,
         target_principal_id=namespace.principal_id,

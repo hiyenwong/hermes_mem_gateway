@@ -16,6 +16,8 @@ TRANSIENT_RE = re.compile(
     r"|今天|明天|现在|目前|暂时|这次)",
     re.I,
 )
+
+
 @dataclass
 class CandidateMemory:
     content: str
@@ -75,7 +77,9 @@ def find_superseded(records: Iterable[dict], candidate: CandidateMemory) -> str 
     for record in records:
         content = str(record.get("content", ""))
         words = set(content.lower().split())
-        overlap = len(candidate_words & words) / max(1, min(len(candidate_words), len(words)))
+        overlap = len(candidate_words & words) / max(
+            1, min(len(candidate_words), len(words))
+        )
         if overlap >= 0.75 and content.strip() != candidate.content.strip():
             return str(record["id"])
     return None

@@ -7,7 +7,11 @@ import pytest
 from plugins.memory.layered_lancedb_sqlite import LayeredLanceDBSQLiteMemoryProvider
 from plugins.memory.layered_lancedb_sqlite.background import BackgroundTasks
 from plugins.memory.layered_lancedb_sqlite.config import ProviderConfig
-from plugins.memory.layered_lancedb_sqlite.namespace import SHARED_PRINCIPAL, resolve_namespace, runtime_from_kwargs
+from plugins.memory.layered_lancedb_sqlite.namespace import (
+    SHARED_PRINCIPAL,
+    resolve_namespace,
+    runtime_from_kwargs,
+)
 from plugins.memory.layered_lancedb_sqlite.policy import (
     memory_write_decision,
     promotion_write_decision,
@@ -24,11 +28,22 @@ def namespace_for(config: ProviderConfig, **kwargs):
 def test_provider_implementation_uses_canonical_plugin_package() -> None:
     source_path = inspect.getfile(LayeredLanceDBSQLiteMemoryProvider)
     assert "plugins/memory/layered_lancedb_sqlite/__init__.py" in source_path
-    assert LayeredLanceDBSQLiteMemoryProvider.__module__ == "plugins.memory.layered_lancedb_sqlite"
+    assert (
+        LayeredLanceDBSQLiteMemoryProvider.__module__
+        == "plugins.memory.layered_lancedb_sqlite"
+    )
 
 
 @pytest.mark.parametrize(
-    ("config", "kwargs", "content", "expected_allowed", "expected_layer", "expected_principal", "expected_reason"),
+    (
+        "config",
+        "kwargs",
+        "content",
+        "expected_allowed",
+        "expected_layer",
+        "expected_principal",
+        "expected_reason",
+    ),
     [
         (
             ProviderConfig(),
@@ -41,7 +56,11 @@ def test_provider_implementation_uses_canonical_plugin_package() -> None:
         ),
         (
             ProviderConfig(shared_writer_emails=["admin@example.com"]),
-            {"platform": "gateway", "user_email": "admin@example.com", "request_metadata": {"shared_memory": True}},
+            {
+                "platform": "gateway",
+                "user_email": "admin@example.com",
+                "request_metadata": {"shared_memory": True},
+            },
             "Remember that the shared deployment checklist lives in Notion.",
             True,
             "semantic_shared",
@@ -50,7 +69,11 @@ def test_provider_implementation_uses_canonical_plugin_package() -> None:
         ),
         (
             ProviderConfig(shared_writer_emails=["admin@example.com"]),
-            {"platform": "gateway", "user_email": "admin@example.com", "request_metadata": {"shared_memory": False}},
+            {
+                "platform": "gateway",
+                "user_email": "admin@example.com",
+                "request_metadata": {"shared_memory": False},
+            },
             "Remember this as shared: the staging API base URL is https://api.internal.example.",
             True,
             "semantic_user",
@@ -86,7 +109,9 @@ def test_promotion_policy_decision_matrix(
     expected_principal: str | None,
     expected_reason: str,
 ) -> None:
-    decision = promotion_write_decision(config, namespace_for(config, **kwargs), content=content)
+    decision = promotion_write_decision(
+        config, namespace_for(config, **kwargs), content=content
+    )
     assert decision.allowed is expected_allowed
     assert decision.layer == expected_layer
     assert decision.principal_id == expected_principal
@@ -117,7 +142,9 @@ def test_shared_intent_metadata_overrides_natural_language() -> None:
 
 def test_user_id_alt_is_fallback_only_when_prefer_disabled() -> None:
     config = ProviderConfig(prefer_user_id_alt=False)
-    both = namespace_for(config, platform="gateway", user_id="tg-456", user_id_alt="canonical-1")
+    both = namespace_for(
+        config, platform="gateway", user_id="tg-456", user_id_alt="canonical-1"
+    )
     only_alt = namespace_for(config, platform="gateway", user_id_alt="canonical-1")
 
     assert both.principal_id == "tg-456"
@@ -154,8 +181,12 @@ def test_user_email_still_wins_when_prefer_user_id_alt_enabled() -> None:
 
 def test_user_id_alt_enables_cross_platform_principal_unification() -> None:
     config = ProviderConfig(prefer_user_id_alt=True)
-    telegram = namespace_for(config, platform="gateway", user_id="tg-456", user_id_alt="canonical-1")
-    openwebui = namespace_for(config, platform="gateway", user_id="owui-abc", user_id_alt="canonical-1")
+    telegram = namespace_for(
+        config, platform="gateway", user_id="tg-456", user_id_alt="canonical-1"
+    )
+    openwebui = namespace_for(
+        config, platform="gateway", user_id="owui-abc", user_id_alt="canonical-1"
+    )
 
     assert telegram.principal_id == openwebui.principal_id == "canonical-1"
 

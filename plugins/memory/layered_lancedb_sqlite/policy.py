@@ -58,7 +58,9 @@ def _normalize_sentence(text: str) -> str:
     return " ".join(text.strip().split())
 
 
-def resolve_shared_intent(user_text: str, metadata_shared_intent: bool | None) -> SharedIntentDecision:
+def resolve_shared_intent(
+    user_text: str, metadata_shared_intent: bool | None
+) -> SharedIntentDecision:
     if metadata_shared_intent is not None:
         return SharedIntentDecision(metadata_shared_intent, "metadata")
     if SHARED_MEMORY_RE.search(_normalize_sentence(user_text)):
@@ -122,10 +124,18 @@ def promotion_write_decision(
             reason,
             shared_intent,
             shared_authorized,
-            policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+            policy_metadata(
+                namespace,
+                shared_intent,
+                shared_authorized=shared_authorized,
+                reason=reason,
+            ),
         )
 
-    if namespace.agent_context != "primary" and not config.allow_non_primary_durable_writes:
+    if (
+        namespace.agent_context != "primary"
+        and not config.allow_non_primary_durable_writes
+    ):
         reason = "non_primary_blocked"
         return _denied(namespace, shared_intent, shared_authorized, reason)
 
@@ -141,7 +151,12 @@ def promotion_write_decision(
             reason,
             shared_intent,
             shared_authorized,
-            policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+            policy_metadata(
+                namespace,
+                shared_intent,
+                shared_authorized=shared_authorized,
+                reason=reason,
+            ),
         )
 
     reason = "non_gateway_shared"
@@ -152,7 +167,9 @@ def promotion_write_decision(
         reason,
         shared_intent,
         shared_authorized,
-        policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+        policy_metadata(
+            namespace, shared_intent, shared_authorized=shared_authorized, reason=reason
+        ),
     )
 
 
@@ -166,7 +183,10 @@ def memory_write_decision(
     shared_intent = resolve_shared_intent(content, namespace.metadata_shared_intent)
     shared_authorized = shared_write_allowed(config, namespace, shared_intent)
 
-    if namespace.agent_context != "primary" and not config.allow_non_primary_durable_writes:
+    if (
+        namespace.agent_context != "primary"
+        and not config.allow_non_primary_durable_writes
+    ):
         reason = "non_primary_blocked"
         return _denied(namespace, shared_intent, shared_authorized, reason)
 
@@ -180,7 +200,12 @@ def memory_write_decision(
                 reason,
                 shared_intent,
                 shared_authorized,
-                policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+                policy_metadata(
+                    namespace,
+                    shared_intent,
+                    shared_authorized=shared_authorized,
+                    reason=reason,
+                ),
             )
         if namespace.principal_id == SHARED_PRINCIPAL:
             reason = "gateway_principal_missing"
@@ -193,7 +218,12 @@ def memory_write_decision(
             reason,
             shared_intent,
             shared_authorized,
-            policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+            policy_metadata(
+                namespace,
+                shared_intent,
+                shared_authorized=shared_authorized,
+                reason=reason,
+            ),
         )
 
     reason = "non_gateway_shared"
@@ -204,7 +234,9 @@ def memory_write_decision(
         reason,
         shared_intent,
         shared_authorized,
-        policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+        policy_metadata(
+            namespace, shared_intent, shared_authorized=shared_authorized, reason=reason
+        ),
     )
 
 
@@ -226,16 +258,24 @@ def maintenance_user_write_decision(
     }
     if namespace.agent_context != "maintenance":
         reason = "not_maintenance_context"
-        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+        return MaintenanceWriteDecision(
+            False, None, None, reason, {**metadata, "policy_reason": reason}
+        )
     if not namespace.is_gateway:
         reason = "maintenance_requires_gateway_context"
-        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+        return MaintenanceWriteDecision(
+            False, None, None, reason, {**metadata, "policy_reason": reason}
+        )
     if namespace.principal_id == SHARED_PRINCIPAL:
         reason = "maintenance_principal_missing"
-        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+        return MaintenanceWriteDecision(
+            False, None, None, reason, {**metadata, "policy_reason": reason}
+        )
     if target_principal_id != namespace.principal_id:
         reason = "maintenance_cross_principal_blocked"
-        return MaintenanceWriteDecision(False, None, None, reason, {**metadata, "policy_reason": reason})
+        return MaintenanceWriteDecision(
+            False, None, None, reason, {**metadata, "policy_reason": reason}
+        )
     reason = "maintenance_same_principal_user"
     return MaintenanceWriteDecision(
         True,
@@ -269,8 +309,20 @@ def recall_scopes(namespace: NamespaceContext, *, today: str = "") -> list[Recal
                 exclude_session_id=namespace.session_id,
             )
         )
-        scopes.append(RecallScope("User semantic memory", "semantic_user", namespace.principal_id, "", True))
-    scopes.append(RecallScope("Workspace shared memory", "semantic_shared", SHARED_PRINCIPAL, "", True))
+        scopes.append(
+            RecallScope(
+                "User semantic memory",
+                "semantic_user",
+                namespace.principal_id,
+                "",
+                True,
+            )
+        )
+    scopes.append(
+        RecallScope(
+            "Workspace shared memory", "semantic_shared", SHARED_PRINCIPAL, "", True
+        )
+    )
     return scopes
 
 
@@ -287,5 +339,7 @@ def _denied(
         reason,
         shared_intent,
         shared_authorized,
-        policy_metadata(namespace, shared_intent, shared_authorized=shared_authorized, reason=reason),
+        policy_metadata(
+            namespace, shared_intent, shared_authorized=shared_authorized, reason=reason
+        ),
     )

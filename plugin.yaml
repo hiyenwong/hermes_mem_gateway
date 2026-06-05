@@ -1,5 +1,5 @@
 name: layered_lancedb_sqlite
-kind: memory-provider
+kind: standalone
 description: Layered SQLite + LanceDB memory provider with workspace, user, and session isolation.
 hooks:
   - prefetch

@@ -2,17 +2,110 @@
 
 Hermes memory provider plugin that keeps SQLite as the source of truth and uses LanceDB-compatible semantic indexing for layered recall.
 
-## Layers
+# Memory Specification
 
-- `episodic`: session-bound turn memory
-- `semantic_user`: durable gateway user memory
-- `semantic_shared`: durable workspace memory
+This is the complete, normative description of how memory is identified,
+isolated, written, recalled, and migrated.
 
-## Routing
+## 1. Layers
 
-- Gateway primary contexts with stable `user_id` read from `episodic + semantic_user + semantic_shared`
-- Non-gateway primary contexts read from `episodic + semantic_shared`
-- Non-primary contexts can read, but durable promotion is blocked by default
+| Layer | Scope | Principal | Notes |
+|---|---|---|---|
+| `episodic` | session-bound turn memory | per user (or `__shared__`) | written every turn (`importance=0.35`, `source=sync_turn`) |
+| `semantic_user` | durable per-user memory | the gateway user | only for identified gateway users |
+| `semantic_shared` | durable workspace memory | `__shared__` | shared across all users in the workspace |
+
+## 2. Identity resolution
+
+Identity is read from request kwargs in this **field priority**: explicit kwarg
+value → `X-Hermes-*` header → `X-OpenWebUI-*` header.
+
+Header sources accepted (any of): `headers`, `request_headers`,
+`hermes_headers`, `openwebui_headers`.
+
+| Field | Hermes header | OpenWebUI header |
+|---|---|---|
+| user email | `X-Hermes-User-Email` | `X-OpenWebUI-User-Email` |
+| user id | `X-Hermes-User-Id` | `X-OpenWebUI-User-Id` |
+| user name | `X-Hermes-User-Name` | `X-OpenWebUI-User-Name` |
+| platform | `X-Hermes-Platform` | — |
+
+- **Header keys are case-insensitive.** Incoming headers are canonicalized to
+  lowercase, so `X-Hermes-User-Id`, `x-hermes-user-id`, and `X-HERMES-USER-ID`
+  are equivalent. Header **values** are preserved as-is (platform values are
+  case-sensitive, e.g. `wechat` ≠ `WeChat`).
+- **Body fallback:** for gateway-ish requests lacking headers, identity may be
+  parsed from a `# Current User` block in a system message.
+- **Sidecar fallback:** `identity_sidecar` caches identity per `session_id`.
+
+## 3. Gateway classification
+
+A request is treated as a **gateway** request (private isolation) if **any** of:
+
+1. it carries an identity (`user_email`, `user_id`, or `user_id_alt`), or
+2. `platform` is non-empty and not `cli`, or
+3. `platform` is in `gateway_platforms` (legacy allowlist, kept for
+   compatibility).
+
+Otherwise it is a **non-gateway / CLI** request and uses shared memory.
+
+> Note: `platform` is a free-form, caller-defined value (e.g.
+> `wechat_miniprogram`). Classification no longer depends on the allowlist
+> alone, so arbitrary platform values are isolated correctly.
+
+## 4. Principal (isolation key)
+
+`principal_id` is the per-user isolation key:
+
+- **Gateway, identifiable:** `user_email` → (`user_id_alt` if
+  `prefer_user_id_alt`) → `user_id` → `user_id_alt`.
+- **Gateway, not identifiable:** `__shared__`. A request that comes through the
+  gateway but whose user cannot be identified is classified into **shared
+  memory**.
+- **Non-gateway:** `__shared__`.
+
+## 5. Platform dimension (first-class field)
+
+- Resolved as `kwargs["platform"]` → `X-Hermes-Platform` header → `cli`.
+- Stored on **every** memory row (`memories.platform`) and in the LanceDB
+  index, for any arbitrary value.
+- **Does not affect `principal_id`.** The same user's memory is unified across
+  platforms by default.
+- `recall_platform_scoped=true` restricts recall of a user's own memory to the
+  current platform; the shared workspace pool stays cross-platform.
+
+## 6. Isolation namespace
+
+Every record is partitioned by:
+`profile_id` (= `agent_identity`) → `workspace_id` (= `agent_workspace` /
+`memory_workspace`) → `principal_id` → `session_id` (episodic only) → `layer`.
+
+## 7. Write policy
+
+- Only `primary` contexts write durable memory by default; non-primary writes
+  are gated by `allow_non_primary_durable_writes`.
+- Promotion (`governance.classify_turn`): explicit memory phrases →
+  `confidence 0.96`; non-transient statements with ≥6 words → `0.52`; durable
+  promotion requires `confidence ≥ promotion_min_score` (default `0.8`).
+- Shared writes require the `user_email` to be in `shared_writer_emails` **and**
+  explicit shared intent (when `shared_explicit_required`).
+- Duplicate detection uses content fingerprints; near-duplicates (≥0.75 word
+  overlap) supersede the older record.
+
+## 8. Recall routing
+
+- **Gateway user (identifiable):** session `episodic` + today's cross-session
+  `episodic` + `semantic_user` + `semantic_shared`.
+- **Non-gateway / not identifiable:** session `episodic` + `semantic_shared`.
+- Non-primary contexts can read but do not promote durable memory by default.
+
+## 9. Legacy data classification & migration
+
+- Gateway history with **no identifiable user** belongs in **shared memory**
+  (`__shared__`) — identical to the current principal rule above.
+- The `platform` column is added automatically to existing databases on the
+  next start (see [Upgrading](#upgrading)); legacy rows get `platform=''` and
+  can be backfilled from provenance via `backfill-platform`.
 
 ## Storage
 
@@ -37,8 +130,11 @@ Key options:
 - `profile_id`
 - `allow_non_primary_durable_writes`
 - `promotion_min_score`
-- `gateway_platforms`
+- `gateway_platforms` (legacy allowlist; no longer required for isolation)
 - `embedding_dimensions`
+- `prefer_user_id_alt`
+- `recall_platform_scoped` (default `false`: cross-platform unified recall;
+  `true`: restrict a user's own-memory recall to the current platform)
 
 ## CLI
 
@@ -47,6 +143,8 @@ The provider exposes a small maintenance CLI when active:
 ```bash
 hermes layered_lancedb_sqlite validate
 hermes layered_lancedb_sqlite rebuild-index
+hermes layered_lancedb_sqlite backfill-platform --profile coder --workspace workspace-a            # dry run
+hermes layered_lancedb_sqlite backfill-platform --profile coder --workspace workspace-a --apply    # commit
 hermes layered_lancedb_sqlite compact-user --profile coder --workspace workspace-a --date 2026-05-28 --user-email doris@example.com
 hermes layered_lancedb_sqlite compact-daily --profile coder --workspace workspace-a --date 2026-05-28
 ```
@@ -58,6 +156,42 @@ private principal used by normal Gateway memory, reads and writes only that
 principal's `semantic_user` scope, and records idempotent maintenance state per
 profile/workspace/principal/date. Shared workspace memory maintenance is kept
 separate from per-user maintenance.
+
+## Upgrading
+
+### 0.2.x → 0.3.0 (X-Hermes-* identity + platform isolation)
+
+No manual script is required for a standard upgrade. Migrations run
+automatically and idempotently on the next provider `initialize()`:
+
+- `memories.platform` column is added to existing databases (`ALTER TABLE`).
+- The `idx_memories_platform` index is created.
+- `EMBEDDER_VERSION` bumps to `v2`, triggering a one-time semantic index
+  rebuild so LanceDB carries the new schema.
+
+Steps:
+
+1. Deploy the new code and restart the provider — auto-migration completes on
+   start.
+2. (Optional) Backfill `platform` for legacy rows from provenance:
+
+   ```bash
+   hermes layered_lancedb_sqlite backfill-platform --profile <p> --workspace <w>          # dry run, reports counts
+   hermes layered_lancedb_sqlite backfill-platform --profile <p> --workspace <w> --apply  # commit + re-sync index
+   ```
+
+Caveats:
+
+- Legacy rows get `platform=''`. Backfill recovers the real value from
+  `provenance.platform` (preserved at write time). Rows whose provenance also
+  lacks a platform are reported as `remaining_empty` and stay empty.
+- If you enable `recall_platform_scoped=true`, legacy rows with `platform=''`
+  will not match a platform-scoped recall — backfill first, or keep the default
+  `false`.
+- Behavior change: requests previously misclassified as CLI (a custom platform
+  not in the allowlist) are now isolated per user. Memory already written to
+  `__shared__` is **not** moved automatically; gateway history with no
+  identifiable user remains shared by design.
 
 ## Architecture Notes
 

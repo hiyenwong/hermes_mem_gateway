@@ -8,9 +8,25 @@ Hermes memory provider plugin that keeps SQLite as the source of truth and uses 
 - `semantic_user`: durable gateway user memory
 - `semantic_shared`: durable workspace memory
 
+## Identity & isolation
+
+- Identity headers, field priority `kwarg > X-Hermes-* > X-OpenWebUI-*`:
+  `X-Hermes-User-Id`, `X-Hermes-User-Name`, `X-Hermes-User-Email`,
+  `X-Hermes-Platform`. Header keys are case-insensitive; values are preserved.
+- A request is a **gateway** request (private isolation) if it carries any
+  identity, or `platform` is non-empty and not `cli`, or `platform` is in the
+  legacy `gateway_platforms` allowlist.
+- `principal_id` (isolation key): `user_email` → `user_id` (or `user_id_alt`).
+  A gateway request whose user cannot be identified is classified into shared
+  memory (`__shared__`).
+- `platform` is a free-form value stored on every record as a first-class
+  field. It does not change `principal_id`, so a user's memory is unified
+  across platforms by default. Set `recall_platform_scoped=true` to restrict a
+  user's own-memory recall to the current platform.
+
 ## Routing
 
-- Gateway primary contexts with stable `user_id` read from `episodic + semantic_user + semantic_shared`
+- Gateway primary contexts with an identifiable user read from `episodic + semantic_user + semantic_shared`
 - Non-gateway primary contexts read from `episodic + semantic_shared`
 - Non-primary contexts can read, but durable promotion is blocked by default
 
@@ -37,8 +53,10 @@ Key options:
 - `profile_id`
 - `allow_non_primary_durable_writes`
 - `promotion_min_score`
-- `gateway_platforms`
+- `gateway_platforms` (legacy allowlist; no longer required for isolation)
 - `embedding_dimensions`
+- `prefer_user_id_alt`
+- `recall_platform_scoped` (default `false` = cross-platform unified recall)
 
 ## CLI
 
@@ -47,7 +65,17 @@ The provider exposes a small maintenance CLI when active:
 ```bash
 hermes layered_lancedb_sqlite validate
 hermes layered_lancedb_sqlite rebuild-index
+hermes layered_lancedb_sqlite backfill-platform --profile coder --workspace workspace-a [--apply]
 ```
+
+## Upgrading (0.2.x → 0.3.0)
+
+Auto-migration runs on the next `initialize()`: the `memories.platform` column
+and its index are added to existing databases, and `EMBEDDER_VERSION` bumps to
+`v2` to rebuild the semantic index. No manual script is required. Optionally run
+`backfill-platform` to recover the real platform of legacy rows from provenance
+(`--apply` to commit; dry run by default). Legacy gateway memory with no
+identifiable user stays in shared memory by design.
 
 ## Architecture
 

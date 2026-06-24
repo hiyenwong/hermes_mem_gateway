@@ -16,6 +16,19 @@ def register_cli(subparser) -> None:
     )
     rebuild.set_defaults(_layered_memory_command="rebuild-index")
 
+    backfill = subparser.add_parser(
+        "backfill-platform",
+        help="Backfill legacy memories.platform from provenance records",
+    )
+    backfill.add_argument("--profile", default="", help="Profile identifier")
+    backfill.add_argument("--workspace", default="", help="Workspace identifier")
+    backfill.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply changes (default is a dry run that only reports counts)",
+    )
+    backfill.set_defaults(_layered_memory_command="backfill-platform")
+
     compact_user = subparser.add_parser(
         "compact-user", help="Run daily maintenance for one Gateway user"
     )
@@ -73,6 +86,13 @@ def run_cli(args, hermes_home: str) -> int:
         command = getattr(args, "_layered_memory_command", "")
         if command == "rebuild-index":
             result = {"rebuilt": store.rebuild_index()}
+        elif command == "backfill-platform":
+            apply = getattr(args, "apply", False)
+            result = store.backfill_platform_from_provenance(dry_run=not apply)
+            result["dry_run"] = not apply
+            if apply and result["updated"]:
+                # Re-sync the semantic index so LanceDB carries the new platform.
+                result["rebuilt"] = store.rebuild_index()
         elif command == "compact-user":
             result = compact_user_day(
                 store=store,

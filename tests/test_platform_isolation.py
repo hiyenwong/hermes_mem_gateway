@@ -220,6 +220,62 @@ def test_bootstrap_adds_platform_column_to_legacy_db(tmp_path: Path) -> None:
     assert platform == "wechat_miniprogram"
 
 
+def test_backfill_platform_from_provenance(tmp_path: Path) -> None:
+    base = tmp_path / "backfill"
+    store = SQLiteStore(
+        base / "memory.sqlite3", dimensions=32, index_path=base / "lancedb"
+    )
+    store.bootstrap()
+
+    # Simulate a legacy memory whose platform column is empty but whose
+    # provenance preserved the real platform.
+    recoverable = store.insert_memory(
+        profile_id="p",
+        workspace_id="w",
+        principal_id="user_001",
+        session_id="s",
+        layer="episodic",
+        kind="turn",
+        content="recoverable",
+        fingerprint="fp1",
+        source="test",
+        importance=0.5,
+        platform="",
+    )
+    store.add_provenance(
+        recoverable, source_type="sync_turn", platform="wechat_miniprogram"
+    )
+    # A memory with no platform anywhere — cannot be recovered.
+    store.insert_memory(
+        profile_id="p",
+        workspace_id="w",
+        principal_id="user_002",
+        session_id="s",
+        layer="episodic",
+        kind="turn",
+        content="unrecoverable",
+        fingerprint="fp2",
+        source="test",
+        importance=0.5,
+        platform="",
+    )
+
+    dry = store.backfill_platform_from_provenance(dry_run=True)
+    assert dry["empty_before"] == 2
+    assert dry["fillable"] == 1
+    assert dry["updated"] == 0
+
+    applied = store.backfill_platform_from_provenance(dry_run=False)
+    assert applied["updated"] == 1
+    assert applied["remaining_empty"] == 1
+
+    with sqlite3.connect(base / "memory.sqlite3") as conn:
+        rows = dict(conn.execute("SELECT content, platform FROM memories").fetchall())
+    store.close()
+    assert rows["recoverable"] == "wechat_miniprogram"
+    assert rows["unrecoverable"] == ""
+
+
 def test_index_rebuilds_when_embedder_version_changes(tmp_path: Path) -> None:
     base = tmp_path / "rebuild"
     store = SQLiteStore(

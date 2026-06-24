@@ -656,6 +656,71 @@ class SQLiteStore:
             )
             self._conn.commit()
 
+    def backfill_platform_from_provenance(
+        self, *, dry_run: bool = True
+    ) -> dict[str, int]:
+        """Backfill memories.platform for legacy rows using provenance records.
+
+        Rows written before the platform column existed default to ''. The
+        provenance table preserves the platform value seen at write time, so we
+        copy the earliest non-empty provenance.platform into the memory row.
+        Rows whose provenance also lacks a platform cannot be recovered and are
+        reported as ``remaining_empty``.
+        """
+        with self._lock:
+            empty_before = int(
+                self._conn.execute(
+                    "SELECT COUNT(*) AS c FROM memories WHERE platform = ''"
+                ).fetchone()["c"]
+            )
+            fillable = int(
+                self._conn.execute(
+                    """
+                    SELECT COUNT(*) AS c FROM memories m
+                    WHERE m.platform = ''
+                      AND EXISTS (
+                        SELECT 1 FROM provenance p
+                        WHERE p.memory_id = m.id
+                          AND p.platform IS NOT NULL
+                          AND p.platform != ''
+                      )
+                    """
+                ).fetchone()["c"]
+            )
+            updated = 0
+            if not dry_run and fillable:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE memories
+                    SET platform = (
+                        SELECT p.platform FROM provenance p
+                        WHERE p.memory_id = memories.id
+                          AND p.platform IS NOT NULL
+                          AND p.platform != ''
+                        ORDER BY p.created_at ASC, p.id ASC
+                        LIMIT 1
+                    ),
+                    updated_at = ?
+                    WHERE platform = ''
+                      AND EXISTS (
+                        SELECT 1 FROM provenance p
+                        WHERE p.memory_id = memories.id
+                          AND p.platform IS NOT NULL
+                          AND p.platform != ''
+                      )
+                    """,
+                    (utc_now(),),
+                )
+                updated = cursor.rowcount
+                self._conn.commit()
+            remaining_empty = empty_before - updated
+        return {
+            "empty_before": empty_before,
+            "fillable": fillable,
+            "updated": updated,
+            "remaining_empty": remaining_empty,
+        }
+
     def rebuild_index(self) -> int:
         rows = self.eligible_index_rows()
         self.index.rebuild(rows)

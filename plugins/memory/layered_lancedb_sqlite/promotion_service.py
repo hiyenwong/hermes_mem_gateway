@@ -50,6 +50,7 @@ def consolidate_turn(
             fingerprint=candidate.fingerprint,
             source="promotion",
             importance=candidate.confidence,
+            platform=namespace.platform,
             metadata={
                 "platform": namespace.platform,
                 "agent_context": namespace.agent_context,

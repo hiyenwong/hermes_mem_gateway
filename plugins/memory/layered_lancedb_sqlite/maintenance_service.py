@@ -289,6 +289,7 @@ def _compact_started_user_day(
             fingerprint=fingerprint_text(f"{key}:{content}"),
             source=OPERATION_DAILY_COMPACTION,
             importance=0.7,
+            platform=namespace.platform,
             metadata={
                 **decision.metadata,
                 "maintenance_date": date,

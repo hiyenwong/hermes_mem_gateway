@@ -9,6 +9,17 @@ from .identity_sidecar import read_identity as _read_sidecar
 
 
 SHARED_PRINCIPAL = "__shared__"
+DEFAULT_PLATFORM = "cli"
+# Header keys MUST be all lowercase: incoming headers are canonicalized via
+# _canonicalize_headers() which lowercases every key, so matching is
+# case-insensitive regardless of how the gateway capitalizes them
+# (e.g. "X-Hermes-User-Id" -> "x-hermes-user-id").
+HERMES_HEADER_MAP = {
+    "user_email": "x-hermes-user-email",
+    "user_id": "x-hermes-user-id",
+    "user_name": "x-hermes-user-name",
+    "platform": "x-hermes-platform",
+}
 OPENWEBUI_HEADER_MAP = {
     "user_email": "x-openwebui-user-email",
     "user_id": "x-openwebui-user-id",
@@ -93,25 +104,55 @@ def _metadata_shared_intent(metadata: dict[str, Any]) -> bool | None:
     return None
 
 
-def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str, str]:
-    headers = _canonicalize_headers(
+def _headers_from_kwargs(kwargs: dict[str, Any]) -> dict[str, str]:
+    return _canonicalize_headers(
         kwargs.get("headers")
         or kwargs.get("request_headers")
+        or kwargs.get("hermes_headers")
         or kwargs.get("openwebui_headers")
         or {}
     )
+
+
+def _header_value(headers: dict[str, str], field: str) -> str:
+    """Read an identity field from canonicalized headers, Hermes first.
+
+    Keys in both maps are lowercase; headers are already lowercased by
+    _canonicalize_headers, so matching is case-insensitive regardless of the
+    capitalization the gateway sends (e.g. ``X-Hermes-User-Id``).
+    """
+    hermes_key = HERMES_HEADER_MAP.get(field)
+    if hermes_key:
+        value = headers.get(hermes_key, "")
+        if value:
+            return value
+    openwebui_key = OPENWEBUI_HEADER_MAP.get(field)
+    if openwebui_key:
+        return headers.get(openwebui_key, "")
+    return ""
+
+
+def _platform_from_kwargs(kwargs: dict[str, Any]) -> str:
+    explicit = str(kwargs.get("platform", "") or "").strip()
+    if explicit:
+        return explicit
+    headers = _headers_from_kwargs(kwargs)
+    header_platform = headers.get(HERMES_HEADER_MAP["platform"], "").strip()
+    if header_platform:
+        return header_platform
+    return DEFAULT_PLATFORM
+
+
+def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str, str]:
+    headers = _headers_from_kwargs(kwargs)
     user_email = str(
-        kwargs.get("user_email")
-        or headers.get(OPENWEBUI_HEADER_MAP["user_email"], "")
-        or ""
+        kwargs.get("user_email") or _header_value(headers, "user_email") or ""
     ).strip()
     user_id = str(
-        kwargs.get("user_id") or headers.get(OPENWEBUI_HEADER_MAP["user_id"], "") or ""
+        kwargs.get("user_id") or _header_value(headers, "user_id") or ""
     ).strip()
     user_name = str(
-        kwargs.get("user_name")
-        or headers.get(OPENWEBUI_HEADER_MAP["user_name"], "")
-        or ""
+        kwargs.get("user_name") or _header_value(headers, "user_name") or ""
     ).strip()
     user_id_alt = str(kwargs.get("user_id_alt") or "").strip()
     if not (user_email or user_id) and _is_gatewayish_kwargs(kwargs):
@@ -125,8 +166,8 @@ def _identity_from_kwargs(kwargs: dict[str, Any]) -> tuple[str, str, str, str]:
 
 
 def _is_gatewayish_kwargs(kwargs: dict[str, Any]) -> bool:
-    platform = str(kwargs.get("platform", "") or "").strip().lower()
-    return bool(platform) and platform != "cli"
+    platform = _platform_from_kwargs(kwargs).lower()
+    return bool(platform) and platform != DEFAULT_PLATFORM
 
 
 def _messages_from_kwargs(kwargs: dict[str, Any]) -> list[Any]:
@@ -191,9 +232,9 @@ def resolve_namespace(
     config: ProviderConfig, runtime: RuntimeContext
 ) -> NamespaceContext:
     workspace_id = runtime.agent_workspace or config.memory_workspace
-    platform = runtime.platform or "cli"
+    platform = runtime.platform or DEFAULT_PLATFORM
     agent_context = runtime.agent_context or "primary"
-    is_gateway = platform in set(config.gateway_platforms)
+    is_gateway = _is_gateway(config, runtime)
     is_primary = agent_context == "primary"
     principal_id = SHARED_PRINCIPAL
     principal_source = ""
@@ -235,6 +276,23 @@ def resolve_namespace(
     )
 
 
+def _is_gateway(config: ProviderConfig, runtime: RuntimeContext) -> bool:
+    """A request is a gateway request if it carries any identity signal.
+
+    Since X-Hermes-Platform is an arbitrary, caller-defined value, the platform
+    allowlist alone cannot identify gateway traffic. Any resolved identity
+    (email/id/id_alt) or a non-CLI platform marks the request as a gateway user
+    so its memory is isolated per principal. The platform allowlist is kept as
+    an additional signal for backward compatibility.
+    """
+    if runtime.user_email or runtime.user_id or runtime.user_id_alt:
+        return True
+    platform = (runtime.platform or "").strip()
+    if platform and platform.lower() != DEFAULT_PLATFORM:
+        return True
+    return platform in set(config.gateway_platforms)
+
+
 def _gateway_principal(
     config: ProviderConfig, runtime: RuntimeContext
 ) -> tuple[str, str]:
@@ -268,7 +326,7 @@ def runtime_from_kwargs(session_id: str, **kwargs: Any) -> RuntimeContext:
         principal_hint = ""
     return RuntimeContext(
         session_id=session_id,
-        platform=str(kwargs.get("platform", "cli") or "cli"),
+        platform=_platform_from_kwargs(kwargs),
         agent_context=str(kwargs.get("agent_context", "primary") or "primary"),
         agent_identity=str(kwargs.get("agent_identity", "default") or "default"),
         agent_workspace=str(kwargs.get("agent_workspace", "") or ""),

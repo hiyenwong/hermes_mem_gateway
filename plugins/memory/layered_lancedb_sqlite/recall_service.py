@@ -19,7 +19,9 @@ def assemble_recall(
     if gateway_context:
         blocks.append(gateway_context)
 
-    for scope in recall_scopes(namespace):
+    for scope in recall_scopes(
+        namespace, platform_scoped=config.recall_platform_scoped
+    ):
         if scope.semantic:
             hits = store.search_semantic(
                 query,
@@ -29,6 +31,7 @@ def assemble_recall(
                 session_id=scope.session_id,
                 layer=scope.layer,
                 limit=config.recall_limit_per_layer,
+                platform=scope.platform,
             )
             if hits:
                 blocks.append(
@@ -47,6 +50,7 @@ def assemble_recall(
             limit=config.recall_limit_per_layer,
             date=scope.date_filter,
             exclude_session_id=scope.exclude_session_id,
+            platform=scope.platform,
         )
         if records:
             blocks.append(format_memory_block(scope.title, records))

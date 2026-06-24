@@ -33,6 +33,7 @@ def mirror_memory(
         fingerprint=fingerprint_text(content),
         source=source,
         importance=0.95,
+        platform=namespace.platform,
         metadata={**(metadata or {}), **decision.metadata},
     )
     store.add_provenance(

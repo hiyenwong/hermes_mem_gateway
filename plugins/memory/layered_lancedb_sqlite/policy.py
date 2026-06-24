@@ -43,6 +43,7 @@ class RecallScope:
     semantic: bool
     date_filter: str = ""
     exclude_session_id: str = ""
+    platform: str = ""
 
 
 @dataclass(frozen=True)
@@ -286,8 +287,16 @@ def maintenance_user_write_decision(
     )
 
 
-def recall_scopes(namespace: NamespaceContext, *, today: str = "") -> list[RecallScope]:
+def recall_scopes(
+    namespace: NamespaceContext,
+    *,
+    today: str = "",
+    platform_scoped: bool = False,
+) -> list[RecallScope]:
     today = today or datetime.now(timezone.utc).date().isoformat()
+    # When platform-scoped, restrict the user's own memories to the current
+    # platform. The shared workspace pool stays cross-platform by nature.
+    user_platform = namespace.platform if platform_scoped else ""
     scopes = [
         RecallScope(
             "Session episodic memory",
@@ -295,6 +304,7 @@ def recall_scopes(namespace: NamespaceContext, *, today: str = "") -> list[Recal
             namespace.principal_id,
             namespace.session_id,
             False,
+            platform=user_platform,
         )
     ]
     if namespace.is_gateway and namespace.principal_id != SHARED_PRINCIPAL:
@@ -307,6 +317,7 @@ def recall_scopes(namespace: NamespaceContext, *, today: str = "") -> list[Recal
                 False,
                 date_filter=today,
                 exclude_session_id=namespace.session_id,
+                platform=user_platform,
             )
         )
         scopes.append(
@@ -316,6 +327,7 @@ def recall_scopes(namespace: NamespaceContext, *, today: str = "") -> list[Recal
                 namespace.principal_id,
                 "",
                 True,
+                platform=user_platform,
             )
         )
     scopes.append(

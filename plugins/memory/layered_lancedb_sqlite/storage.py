@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-EMBEDDER_VERSION = "blake2b-counts-v1"
+EMBEDDER_VERSION = "blake2b-counts-v2"
 EMBEDDER_STATE_KEY = "embedder_state"
 
 try:
@@ -84,6 +84,7 @@ class SemanticIndex:
                 pa.field("profile_id", pa.string()),
                 pa.field("workspace_id", pa.string()),
                 pa.field("principal_id", pa.string()),
+                pa.field("platform", pa.string()),
                 pa.field("session_id", pa.string()),
                 pa.field("layer", pa.string()),
                 pa.field("kind", pa.string()),
@@ -178,6 +179,7 @@ class SemanticIndex:
                     "profile_id": row["profile_id"],
                     "workspace_id": row["workspace_id"],
                     "principal_id": row["principal_id"],
+                    "platform": row.get("platform", ""),
                     "session_id": row["session_id"],
                     "layer": row["layer"],
                     "kind": row["kind"],
@@ -219,6 +221,7 @@ class SQLiteStore:
                     profile_id TEXT NOT NULL,
                     workspace_id TEXT NOT NULL,
                     principal_id TEXT NOT NULL,
+                    platform TEXT NOT NULL DEFAULT '',
                     session_id TEXT NOT NULL,
                     layer TEXT NOT NULL,
                     kind TEXT NOT NULL,
@@ -259,7 +262,22 @@ class SQLiteStore:
                 );
                 """
             )
+            # Migrate pre-existing DBs that lack the platform column, then add
+            # the platform index (it references the column, so order matters).
+            self._ensure_column("memories", "platform", "TEXT NOT NULL DEFAULT ''")
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memories_platform
+                    ON memories(profile_id, workspace_id, principal_id, platform, layer, status)
+                """
+            )
             self._conn.commit()
+
+    def _ensure_column(self, table: str, column: str, ddl: str) -> None:
+        cursor = self._conn.execute(f"PRAGMA table_info({table})")
+        existing = {str(row["name"]) for row in cursor.fetchall()}
+        if column not in existing:
+            self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def validate(self) -> dict[str, Any]:
         with self._lock:
@@ -290,6 +308,7 @@ class SQLiteStore:
         fingerprint: str,
         source: str,
         importance: float,
+        platform: str = "",
         metadata: dict[str, Any] | None = None,
         supersedes_id: str | None = None,
     ) -> str:
@@ -300,15 +319,16 @@ class SQLiteStore:
             self._conn.execute(
                 """
                 INSERT INTO memories (
-                    id, profile_id, workspace_id, principal_id, session_id, layer, kind, content,
+                    id, profile_id, workspace_id, principal_id, platform, session_id, layer, kind, content,
                     fingerprint, source, status, importance, created_at, updated_at, metadata_json, supersedes_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
                 """,
                 (
                     memory_id,
                     profile_id,
                     workspace_id,
                     principal_id,
+                    platform,
                     session_id,
                     layer,
                     kind,
@@ -336,6 +356,7 @@ class SQLiteStore:
                         "profile_id": profile_id,
                         "workspace_id": workspace_id,
                         "principal_id": principal_id,
+                        "platform": platform,
                         "session_id": session_id,
                         "layer": layer,
                         "kind": kind,
@@ -451,6 +472,7 @@ class SQLiteStore:
         limit: int,
         date: str = "",
         exclude_session_id: str = "",
+        platform: str = "",
     ) -> list[dict[str, Any]]:
         where = [
             "profile_id = ?",
@@ -462,6 +484,9 @@ class SQLiteStore:
         if principal_id:
             where.append("principal_id = ?")
             params.append(principal_id)
+        if platform:
+            where.append("platform = ?")
+            params.append(platform)
         if session_id:
             where.append("session_id = ?")
             params.append(session_id)
@@ -493,11 +518,13 @@ class SQLiteStore:
         session_id: str,
         layer: str,
         limit: int,
+        platform: str = "",
     ) -> list[SearchResult]:
         filters = {
             "profile_id": profile_id,
             "workspace_id": workspace_id,
             "principal_id": principal_id,
+            "platform": platform,
             "session_id": session_id if layer == "episodic" else "",
             "layer": layer,
             "status": "active",
@@ -511,6 +538,7 @@ class SQLiteStore:
                 session_id=session_id,
                 layer=layer,
                 limit=limit,
+                platform=platform,
             )
             return [
                 SearchResult(record=record, score=record["importance"])
@@ -534,7 +562,7 @@ class SQLiteStore:
         with self._lock:
             cursor = self._conn.execute(
                 """
-                SELECT id, profile_id, workspace_id, principal_id, session_id, layer, kind, status, content
+                SELECT id, profile_id, workspace_id, principal_id, platform, session_id, layer, kind, status, content
                 FROM memories
                 WHERE layer LIKE 'semantic%' AND status = 'active'
                 """

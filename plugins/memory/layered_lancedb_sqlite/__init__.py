@@ -87,6 +87,12 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
                 "description": "Semantic embedding dimensions",
                 "default": 64,
             },
+            {
+                "key": "recall_platform_scoped",
+                "description": "Restrict recall of a user's own memory to the current platform",
+                "default": False,
+                "choices": [True, False],
+            },
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
@@ -170,6 +176,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             fingerprint=fingerprint_text(f"{user}\n{assistant}"),
             source="sync_turn",
             importance=0.35,
+            platform=namespace.platform,
             metadata={
                 "platform": namespace.platform,
                 "agent_context": namespace.agent_context,
@@ -223,6 +230,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             "metadata": kwargs.get("metadata", self._runtime.request_metadata),
             "headers": kwargs.get("headers", None),
             "request_headers": kwargs.get("request_headers", None),
+            "hermes_headers": kwargs.get("hermes_headers", None),
             "openwebui_headers": kwargs.get("openwebui_headers", None),
         }
         self._runtime = runtime_from_kwargs(new_session_id, **merged)

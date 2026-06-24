@@ -25,6 +25,7 @@ ENV_KEY_MAP = {
     "LAYERED_MEMORY_STORAGE_ROOT": "storage_root",
     "LAYERED_MEMORY_MAINTENANCE_MAX_RECORDS_PER_DAY": "maintenance_max_records_per_day",
     "LAYERED_MEMORY_PREFER_USER_ID_ALT": "prefer_user_id_alt",
+    "LAYERED_MEMORY_RECALL_PLATFORM_SCOPED": "recall_platform_scoped",
 }
 
 
@@ -44,6 +45,7 @@ class ProviderConfig:
     storage_root: str = ""
     maintenance_max_records_per_day: int = 1000
     prefer_user_id_alt: bool = False
+    recall_platform_scoped: bool = False
 
     @classmethod
     def from_mapping(cls, values: Dict[str, Any] | None) -> "ProviderConfig":
@@ -97,6 +99,7 @@ def _coerce_env_value(key: str, value: str) -> Any:
         "allow_non_primary_durable_writes",
         "shared_explicit_required",
         "prefer_user_id_alt",
+        "recall_platform_scoped",
     }:
         return coerce_bool(value)
     if key in {"promotion_min_score"}:

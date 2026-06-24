@@ -57,6 +57,8 @@ Key options:
 - `embedding_dimensions`
 - `prefer_user_id_alt`
 - `recall_platform_scoped` (default `false` = cross-platform unified recall)
+- `default_ttl_hours` (default `0` = never expire; when > 0, memories written
+  without an explicit `expires_at` get `now + default_ttl_hours`)
 
 ## CLI
 
@@ -66,6 +68,7 @@ The provider exposes a small maintenance CLI when active:
 hermes layered_lancedb_sqlite validate
 hermes layered_lancedb_sqlite rebuild-index
 hermes layered_lancedb_sqlite backfill-platform --profile coder --workspace workspace-a [--apply]
+hermes layered_lancedb_sqlite purge-expired --profile coder --workspace workspace-a [--apply]
 ```
 
 ## Upgrading (0.2.x → 0.3.0)

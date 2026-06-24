@@ -2,6 +2,39 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.0 - 2026-06-24
+
+### Added
+
+- Introduced `expires_at` field on the `memories` table: an ISO 8601 UTC
+  timestamp string. An empty string (`''`, the default) means "never expires"
+  (backward compatible). Memories whose `expires_at` has passed are
+  automatically excluded from recall — they are not returned by any recall path
+  (`fetch_existing_durable`, `search_exact`, `search_semantic`,
+  `eligible_index_rows`, `fetch_user_records_for_date`), but they are **not
+  physically deleted**, preserving auditability.
+- Added `expires_at` optional keyword to `SQLiteStore.insert_memory` so callers
+  can stamp an expiry at write time.
+- Added `default_ttl_hours` config option (default `0` = no expiry). When > 0,
+  memories written without an explicit `expires_at` get one computed as
+  `now + default_ttl_hours`.
+- Added `purge-expired` CLI command: archives memories whose `expires_at` has
+  passed (sets `status='archived'`). Dry-run by default; `--apply` to commit.
+
+### Migration (0.3.x → 0.4.0)
+
+- No manual script required. On the next provider `initialize()` the
+  `memories.expires_at` column is added to existing databases via
+  `_ensure_column` (idempotent `ALTER TABLE`). Existing rows get
+  `expires_at=''` (never expires) and remain fully recallable.
+- **No LanceDB schema change, no dimension change, no index rebuild needed.**
+- Optionally run `purge-expired` to clean up if you later write TTL'd memories.
+
+### Verified
+
+- `ruff check --fix` and `ruff format`
+- `pytest tests/` (full suite, deterministic on both stub and LanceDB backends)
+
 ## 0.3.1 - 2026-06-24
 
 ### Fixed

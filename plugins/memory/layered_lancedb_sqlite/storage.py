@@ -238,7 +238,8 @@ class SQLiteStore:
                     archived_at TEXT,
                     supersedes_id TEXT,
                     superseded_by_id TEXT,
-                    metadata_json TEXT NOT NULL DEFAULT '{}'
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    expires_at TEXT NOT NULL DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS idx_memories_scope
                     ON memories(profile_id, workspace_id, principal_id, session_id, layer, status);
@@ -265,6 +266,7 @@ class SQLiteStore:
             # Migrate pre-existing DBs that lack the platform column, then add
             # the platform index (it references the column, so order matters).
             self._ensure_column("memories", "platform", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column("memories", "expires_at", "TEXT NOT NULL DEFAULT ''")
             self._conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_memories_platform
@@ -309,6 +311,7 @@ class SQLiteStore:
         source: str,
         importance: float,
         platform: str = "",
+        expires_at: str = "",
         metadata: dict[str, Any] | None = None,
         supersedes_id: str | None = None,
     ) -> str:
@@ -320,8 +323,9 @@ class SQLiteStore:
                 """
                 INSERT INTO memories (
                     id, profile_id, workspace_id, principal_id, platform, session_id, layer, kind, content,
-                    fingerprint, source, status, importance, created_at, updated_at, metadata_json, supersedes_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+                    fingerprint, source, status, importance, created_at, updated_at, metadata_json, supersedes_id,
+                    expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     memory_id,
@@ -340,6 +344,7 @@ class SQLiteStore:
                     now,
                     json.dumps(metadata, sort_keys=True),
                     supersedes_id,
+                    expires_at,
                 ),
             )
             if supersedes_id:
@@ -453,10 +458,12 @@ class SQLiteStore:
             cursor = self._conn.execute(
                 """
                 SELECT * FROM memories
-                WHERE profile_id = ? AND workspace_id = ? AND principal_id = ? AND layer = ? AND status = 'active'
+                WHERE profile_id = ? AND workspace_id = ? AND principal_id = ? AND layer = ?
+                  AND status = 'active'
+                  AND (expires_at = '' OR expires_at > ?)
                 ORDER BY created_at DESC
                 """,
-                (profile_id, workspace_id, principal_id, layer),
+                (profile_id, workspace_id, principal_id, layer, utc_now()),
             )
             rows = cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
@@ -479,8 +486,9 @@ class SQLiteStore:
             "workspace_id = ?",
             "layer = ?",
             "status = 'active'",
+            "(expires_at = '' OR expires_at > ?)",
         ]
-        params: list[Any] = [profile_id, workspace_id, layer]
+        params: list[Any] = [profile_id, workspace_id, layer, utc_now()]
         if principal_id:
             where.append("principal_id = ?")
             params.append(principal_id)
@@ -549,7 +557,8 @@ class SQLiteStore:
         for match in matches:
             with self._lock:
                 cursor = self._conn.execute(
-                    "SELECT * FROM memories WHERE id = ?", (match.record["memory_id"],)
+                    "SELECT * FROM memories WHERE id = ? AND (expires_at = '' OR expires_at > ?)",
+                    (match.record["memory_id"], utc_now()),
                 )
                 row = cursor.fetchone()
             if row is not None:
@@ -565,7 +574,9 @@ class SQLiteStore:
                 SELECT id, profile_id, workspace_id, principal_id, platform, session_id, layer, kind, status, content
                 FROM memories
                 WHERE layer LIKE 'semantic%' AND status = 'active'
-                """
+                  AND (expires_at = '' OR expires_at > ?)
+                """,
+                (utc_now(),),
             )
             rows = cursor.fetchall()
         payload = []
@@ -613,7 +624,7 @@ class SQLiteStore:
         layer: str = "semantic_user",
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        params: list[Any] = [profile_id, workspace_id, principal_id, layer, f"{date}%"]
+        params: list[Any] = [profile_id, workspace_id, principal_id, layer, utc_now(), f"{date}%"]
         query = """
             SELECT *
             FROM memories
@@ -622,6 +633,7 @@ class SQLiteStore:
               AND principal_id = ?
               AND layer = ?
               AND status = 'active'
+              AND (expires_at = '' OR expires_at > ?)
               AND created_at LIKE ?
             ORDER BY created_at ASC
         """
@@ -719,6 +731,52 @@ class SQLiteStore:
             "fillable": fillable,
             "updated": updated,
             "remaining_empty": remaining_empty,
+        }
+
+    def purge_expired(self, *, dry_run: bool = True) -> dict[str, int]:
+        """Archive memories whose ``expires_at`` has passed.
+
+        Expired memories are those with a non-empty ``expires_at`` that is <= the
+        current UTC time. They are already filtered out of recall by the
+        ``(expires_at = '' OR expires_at > :now)`` clause; this method physically
+        marks them ``archived`` (keeping them auditable) when ``dry_run=False``.
+
+        Returns counts of expired and purged rows.
+        """
+        now = utc_now()
+        with self._lock:
+            expired_count = int(
+                self._conn.execute(
+                    "SELECT COUNT(*) AS c FROM memories WHERE expires_at != '' AND expires_at <= ?",
+                    (now,),
+                ).fetchone()["c"]
+            )
+            purged = 0
+            if not dry_run and expired_count:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE memories
+                    SET status = 'archived', archived_at = ?, updated_at = ?
+                    WHERE expires_at != '' AND expires_at <= ? AND status = 'active'
+                    """,
+                    (now, now, now),
+                )
+                purged = cursor.rowcount
+                self._conn.commit()
+        # Remove purged rows from the semantic index.
+        if not dry_run and purged:
+            with self._lock:
+                cursor = self._conn.execute(
+                    "SELECT id FROM memories WHERE expires_at != '' AND expires_at <= ? AND status = 'archived'",
+                    (now,),
+                )
+                expired_ids = [str(row["id"]) for row in cursor.fetchall()]
+            for mid in expired_ids:
+                self.index.remove(mid)
+        return {
+            "expired_count": expired_count,
+            "purged": purged,
+            "dry_run": dry_run,
         }
 
     def rebuild_index(self) -> int:

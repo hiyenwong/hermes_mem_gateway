@@ -66,6 +66,19 @@ def register_cli(subparser) -> None:
     )
     compact_daily_parser.set_defaults(_layered_memory_command="compact-daily")
 
+    purge = subparser.add_parser(
+        "purge-expired",
+        help="Archive memories whose expires_at has passed (dry run by default)",
+    )
+    purge.add_argument("--profile", default="", help="Profile identifier")
+    purge.add_argument("--workspace", default="", help="Workspace identifier")
+    purge.add_argument(
+        "--apply",
+        action="store_true",
+        help="Archive expired memories (default is a dry run that only reports counts)",
+    )
+    purge.set_defaults(_layered_memory_command="purge-expired")
+
 
 def run_cli(args, hermes_home: str) -> int:
     config = merge_overrides(
@@ -110,6 +123,10 @@ def run_cli(args, hermes_home: str) -> int:
                 date=args.date,
                 force=args.force,
             )
+        elif command == "purge-expired":
+            apply = getattr(args, "apply", False)
+            result = store.purge_expired(dry_run=not apply)
+            result["dry_run"] = not apply
         else:
             result = store.validate()
         print(json.dumps(result, indent=2, sort_keys=True))

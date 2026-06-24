@@ -74,6 +74,20 @@ Otherwise it is a **non-gateway / CLI** request and uses shared memory.
 - `recall_platform_scoped=true` restricts recall of a user's own memory to the
   current platform; the shared workspace pool stays cross-platform.
 
+## 5b. Expiry (`expires_at`)
+
+- Each memory row carries an `expires_at` field: an ISO 8601 UTC timestamp
+  string. An empty string (`''`, the default) means **never expires**.
+- At recall time, every `status='active'` query is additionally filtered by
+  `(expires_at = '' OR expires_at > :now)` where `:now = utc_now()`. Expired
+  memories are **excluded from recall but not physically deleted** — they remain
+  in the table with their original `status='active'` and are fully auditable.
+- `insert_memory` accepts an optional `expires_at` keyword argument. When the
+  config option `default_ttl_hours > 0`, memories written without an explicit
+  `expires_at` are stamped with `now + default_ttl_hours`.
+- The `purge-expired` CLI command archives expired memories
+  (`status='archived'`) on demand; it is a dry run by default.
+
 ## 6. Isolation namespace
 
 Every record is partitioned by:
@@ -135,6 +149,8 @@ Key options:
 - `prefer_user_id_alt`
 - `recall_platform_scoped` (default `false`: cross-platform unified recall;
   `true`: restrict a user's own-memory recall to the current platform)
+- `default_ttl_hours` (default `0` = never expire; when > 0, memories written
+  without an explicit `expires_at` get `now + default_ttl_hours`)
 
 ## CLI
 
@@ -147,6 +163,8 @@ hermes layered_lancedb_sqlite backfill-platform --profile coder --workspace work
 hermes layered_lancedb_sqlite backfill-platform --profile coder --workspace workspace-a --apply    # commit
 hermes layered_lancedb_sqlite compact-user --profile coder --workspace workspace-a --date 2026-05-28 --user-email doris@example.com
 hermes layered_lancedb_sqlite compact-daily --profile coder --workspace workspace-a --date 2026-05-28
+hermes layered_lancedb_sqlite purge-expired --profile coder --workspace workspace-a            # dry run, reports counts
+hermes layered_lancedb_sqlite purge-expired --profile coder --workspace workspace-a --apply    # archive expired memories
 ```
 
 Daily user maintenance is explicitly triggered by Hermes or an external
@@ -158,6 +176,21 @@ profile/workspace/principal/date. Shared workspace memory maintenance is kept
 separate from per-user maintenance.
 
 ## Upgrading
+
+### 0.3.x → 0.4.0 (expires_at memory expiry)
+
+No manual script is required. On the next provider `initialize()`:
+
+- `memories.expires_at` column (`TEXT NOT NULL DEFAULT ''`) is added to
+  existing databases via the idempotent `_ensure_column` migration. Existing
+  rows get `expires_at=''` (never expires) and remain fully recallable.
+- **No LanceDB schema change, no dimension change, no index rebuild needed.**
+
+Optionally:
+
+- Set `default_ttl_hours` > 0 in config to auto-stamp expiry on new writes.
+- Run `purge-expired` to archive memories whose `expires_at` has passed
+  (dry run by default; `--apply` to commit).
 
 ### 0.2.x → 0.3.0 (X-Hermes-* identity + platform isolation)
 

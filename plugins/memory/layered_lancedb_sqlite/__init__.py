@@ -93,6 +93,11 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
                 "default": False,
                 "choices": [True, False],
             },
+            {
+                "key": "default_ttl_hours",
+                "description": "Auto-stamp expires_at on new writes (0 = never expire)",
+                "default": 0,
+            },
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:

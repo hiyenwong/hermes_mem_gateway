@@ -123,8 +123,14 @@ def test_cosine_similarity_raises_on_dimension_mismatch() -> None:
 
 
 def test_semantic_search_skips_rows_with_stale_vector_dimensions(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The stale-dimension guard in SemanticIndex.search is only reachable on the
+    # stub backend: LanceDB pins the vector column to a fixed width, so its
+    # pyarrow schema rejects a mismatched vector at upsert time before search
+    # runs. Force the stub backend so this test exercises the guard
+    # deterministically whether or not lancedb is installed.
+    monkeypatch.setattr("plugins.memory.layered_lancedb_sqlite.storage.lancedb", None)
     index = SemanticIndex(tmp_path / "lancedb", dimensions=16)
     fresh_vector = embed_text("matcha", 16)
     index.upsert(

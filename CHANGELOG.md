@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.1 - 2026-06-24
+
+### Fixed
+
+- Made `test_semantic_search_skips_rows_with_stale_vector_dimensions`
+  deterministic by forcing the stub backend via monkeypatch. The stale-dimension
+  guard in `SemanticIndex.search` is only reachable on the stub backend; with
+  LanceDB installed, the fixed-width vector schema rejected the mismatched vector
+  at upsert time, so the test failed (or silently passed without exercising the
+  guard) depending on whether `lancedb` was present. Test-only change; no runtime
+  behavior affected.
+
 ## 0.3.0 - 2026-06-24
 
 ### Added

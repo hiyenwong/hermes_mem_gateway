@@ -239,7 +239,10 @@ class SQLiteStore:
                     supersedes_id TEXT,
                     superseded_by_id TEXT,
                     metadata_json TEXT NOT NULL DEFAULT '{}',
-                    expires_at TEXT NOT NULL DEFAULT ''
+                    expires_at TEXT NOT NULL DEFAULT '',
+                    user_id TEXT NOT NULL DEFAULT '',
+                    user_email TEXT NOT NULL DEFAULT '',
+                    user_name TEXT NOT NULL DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS idx_memories_scope
                     ON memories(profile_id, workspace_id, principal_id, session_id, layer, status);
@@ -267,6 +270,11 @@ class SQLiteStore:
             # the platform index (it references the column, so order matters).
             self._ensure_column("memories", "platform", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column("memories", "expires_at", "TEXT NOT NULL DEFAULT ''")
+            # Persist resolved identity alongside principal_id so a memory can be
+            # traced back to the user even when principal_id is an opaque id.
+            self._ensure_column("memories", "user_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column("memories", "user_email", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column("memories", "user_name", "TEXT NOT NULL DEFAULT ''")
             self._conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_memories_platform
@@ -312,6 +320,9 @@ class SQLiteStore:
         importance: float,
         platform: str = "",
         expires_at: str = "",
+        user_id: str = "",
+        user_email: str = "",
+        user_name: str = "",
         metadata: dict[str, Any] | None = None,
         supersedes_id: str | None = None,
     ) -> str:
@@ -324,8 +335,8 @@ class SQLiteStore:
                 INSERT INTO memories (
                     id, profile_id, workspace_id, principal_id, platform, session_id, layer, kind, content,
                     fingerprint, source, status, importance, created_at, updated_at, metadata_json, supersedes_id,
-                    expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                    expires_at, user_id, user_email, user_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     memory_id,
@@ -345,6 +356,9 @@ class SQLiteStore:
                     json.dumps(metadata, sort_keys=True),
                     supersedes_id,
                     expires_at,
+                    user_id,
+                    user_email,
+                    user_name,
                 ),
             )
             if supersedes_id:
@@ -624,7 +638,14 @@ class SQLiteStore:
         layer: str = "semantic_user",
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        params: list[Any] = [profile_id, workspace_id, principal_id, layer, utc_now(), f"{date}%"]
+        params: list[Any] = [
+            profile_id,
+            workspace_id,
+            principal_id,
+            layer,
+            utc_now(),
+            f"{date}%",
+        ]
         query = """
             SELECT *
             FROM memories

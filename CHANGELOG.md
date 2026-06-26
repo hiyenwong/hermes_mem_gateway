@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.5.0 - 2026-06-26
+
+### Added
+
+- Persist resolved identity on every memory row: new `user_id`, `user_email`,
+  and `user_name` columns (all `TEXT NOT NULL DEFAULT ''`). They are stamped at
+  write time from the request `NamespaceContext` across all write paths
+  (`sync_turn`, `mirror_memory`, daily compaction), so a memory can be traced to
+  the user even when `principal_id` is an opaque id. Recall records carry the
+  fields automatically via `_row_to_dict`.
+
+### Migration
+
+- The three identity columns are added to existing databases automatically and
+  idempotently via `ALTER TABLE` on the next `initialize()`; legacy rows default
+  to `''`. No semantic index rebuild is required. See README "Upgrading: 0.4.x →
+  0.5.0".
+
 ## 0.4.0 - 2026-06-24
 
 ### Added

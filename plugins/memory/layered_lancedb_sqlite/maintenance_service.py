@@ -290,6 +290,9 @@ def _compact_started_user_day(
             source=OPERATION_DAILY_COMPACTION,
             importance=0.7,
             platform=namespace.platform,
+            user_id=namespace.user_id,
+            user_email=namespace.user_email,
+            user_name=namespace.user_name,
             metadata={
                 **decision.metadata,
                 "maintenance_date": date,

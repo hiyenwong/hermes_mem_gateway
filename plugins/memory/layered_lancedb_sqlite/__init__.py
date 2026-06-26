@@ -182,6 +182,9 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
             source="sync_turn",
             importance=0.35,
             platform=namespace.platform,
+            user_id=namespace.user_id,
+            user_email=namespace.user_email,
+            user_name=namespace.user_name,
             metadata={
                 "platform": namespace.platform,
                 "agent_context": namespace.agent_context,

@@ -34,6 +34,9 @@ def mirror_memory(
         source=source,
         importance=0.95,
         platform=namespace.platform,
+        user_id=namespace.user_id,
+        user_email=namespace.user_email,
+        user_name=namespace.user_name,
         metadata={**(metadata or {}), **decision.metadata},
     )
     store.add_provenance(

@@ -64,6 +64,17 @@ Otherwise it is a **non-gateway / CLI** request and uses shared memory.
   memory**.
 - **Non-gateway:** `__shared__`.
 
+### 4b. Persisted identity (`user_id` / `user_email` / `user_name`)
+
+- The resolved identity is stored on **every** memory row in three dedicated
+  columns (`user_id`, `user_email`, `user_name`), in addition to the derived
+  `principal_id` isolation key.
+- This makes a memory traceable to its author even when `principal_id` is an
+  opaque id rather than an email. Recall records carry these fields directly.
+- Values are stamped from the request `NamespaceContext` on every write path
+  (turn sync, builtin/mirrored writes, daily compaction). Rows written without
+  an identifiable user (e.g. shared memory) keep the empty-string default.
+
 ## 5. Platform dimension (first-class field)
 
 - Resolved as `kwargs["platform"]` → `X-Hermes-Platform` header → `cli`.
@@ -176,6 +187,20 @@ profile/workspace/principal/date. Shared workspace memory maintenance is kept
 separate from per-user maintenance.
 
 ## Upgrading
+
+### 0.4.x → 0.5.0 (persisted identity columns)
+
+Backward compatible. Migration runs automatically and idempotently on the next
+provider `initialize()`:
+
+- `memories.user_id`, `memories.user_email`, and `memories.user_name` columns
+  are added to existing databases (`ALTER TABLE`), defaulting to `''`.
+- No semantic index rebuild is required — the LanceDB schema is untouched.
+
+Existing rows keep empty identity fields; new writes are stamped from the
+request identity going forward. There is no backfill (the raw identity for
+historical rows was never persisted). See
+[Persisted identity](#4b-persisted-identity-user_id--user_email--user_name).
 
 ### 0.3.x → 0.4.0 (expires_at memory expiry)
 

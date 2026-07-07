@@ -437,3 +437,90 @@ def test_metadata_shared_intent_overrides_natural_language_shared_request(
     assert rows[0][1] == "semantic_user"
     assert '"shared_request_source": "metadata"' in rows[0][2]
     assert '"shared_authorized": false' in rows[0][2]
+
+
+def test_on_session_switch_rewound_invalidates_prefetch_cache(tmp_path: Path) -> None:
+    """``rewound=True`` (``/undo``) must drop the rewound session's cached recall.
+
+    The prefetch cache is keyed by ``(workspace, principal, session, query)``.
+    After ``/undo`` the session_id is unchanged but the transcript has been
+    truncated, so any cached recall assembled from the pre-undo messages is
+    stale. ``on_session_switch(rewound=True)`` must evict those entries so
+    the next ``prefetch()`` re-runs recall against the shortened history.
+    """
+    provider = build_provider(tmp_path, platform="cli")
+    provider.sync_turn(
+        "Remember that the deployment window is Fridays at 5 PM UTC.", "Will remember."
+    )
+    # Warm the cache with the current session's recall.
+    recall_before = provider.prefetch("deployment window")
+    assert "deployment window is Fridays" in recall_before
+    assert provider._prefetch_cache, "expected at least one cached recall entry"
+
+    # Simulate /undo: session_id unchanged, transcript truncated.
+    provider.on_session_switch("session-1", rewound=True, platform="cli")
+
+    # The cache entries keyed on the rewound session must be gone.
+    assert all(key[2] != "session-1" for key in provider._prefetch_cache)
+    provider.shutdown()
+
+
+def test_on_session_switch_reset_with_parent_drops_old_session_cache(
+    tmp_path: Path,
+) -> None:
+    """``reset=True`` with ``parent_session_id`` clears the old session's cache.
+
+    ``/new`` and ``/reset`` pass ``parent_session_id=old_session_id`` and
+    ``reset=True``. The old session's cached recall is stale for the new
+    conversation and must be evicted.
+    """
+    provider = build_provider(tmp_path, platform="cli")
+    provider.sync_turn("Remember that the offsite is in Lisbon.", "Noted.")
+    provider.prefetch("offsite")
+    cached_sessions = {key[2] for key in provider._prefetch_cache}
+    assert "session-1" in cached_sessions
+
+    # Simulate /new: new session_id, parent is the old one, reset=True.
+    provider.on_session_switch(
+        "session-new", parent_session_id="session-1", reset=True, platform="cli"
+    )
+
+    cached_sessions = {key[2] for key in provider._prefetch_cache}
+    assert "session-1" not in cached_sessions
+    provider.shutdown()
+
+
+def test_backup_paths_returns_empty(tmp_path: Path) -> None:
+    """All provider state lives under HERMES_HOME — nothing external to declare.
+
+    ``hermes backup`` walks HERMES_HOME and captures the plugin's SQLite,
+    LanceDB index, and config there. Returning an explicit empty list makes
+    that invariant testable and guards against accidental drift if future
+    work introduces out-of-tree storage.
+    """
+    provider = build_provider(tmp_path, platform="cli")
+    assert provider.backup_paths() == []
+    provider.shutdown()
+
+
+def test_sync_turn_promotes_durable_memory_synchronously(tmp_path: Path) -> None:
+    """``sync_turn`` must complete consolidation before returning.
+
+    Hermes >=0.18 invokes ``sync_turn`` on its own background worker, so the
+    provider no longer needs to re-dispatch consolidation to a second thread.
+    The durable promotion must be visible to a same-process query immediately
+    after ``sync_turn`` returns — no ``shutdown()`` drain, no sleep.
+    """
+    provider = build_provider(tmp_path, platform="gateway", user_id="user-1")
+    provider.sync_turn("Remember that my employee badge number is 4242.", "Noted.")
+    # No shutdown, no drain — durable promotion must already be committed.
+    sqlite_path = (
+        tmp_path
+        / "memory-providers/layered_lancedb_sqlite/coder/workspace-a/memory.sqlite3"
+    )
+    with sqlite3.connect(sqlite_path) as conn:
+        rows = conn.execute(
+            "SELECT layer, content FROM memories WHERE layer = 'semantic_user'"
+        ).fetchall()
+    provider.shutdown()
+    assert any("badge number is 4242" in row[1] for row in rows)

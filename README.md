@@ -188,6 +188,25 @@ separate from per-user maintenance.
 
 ## Upgrading
 
+### 0.5.x → 0.6.0 (Hermes 0.18 adaptation)
+
+Drop-in replacement — no schema migration, no index rebuild, no config change.
+
+- The provider now implements the `rewound` parameter on `on_session_switch`
+  (introduced in Hermes 0.18 / `v2026.7.1`). When `/undo` truncates the
+  transcript without changing `session_id`, the prefetch cache entries keyed
+  on the rewound session are evicted so the next recall runs against the
+  shortened history instead of returning a stale cached result.
+- `/new` and `/reset` (which pass `parent_session_id` + `reset=True`) now
+  correctly drop the old session's cached recall.
+- `sync_turn()` runs durable consolidation synchronously — Hermes 0.18
+  already invokes `sync_turn` on a background worker inside
+  `MemoryManager`, so the provider's second layer of backgrounding was
+  redundant. The episodic write and the durable promotion are both
+  committed before `sync_turn()` returns.
+- `backup_paths()` is implemented explicitly (returns `[]`) — all provider
+  state already lives under `HERMES_HOME`.
+
 ### 0.4.x → 0.5.0 (persisted identity columns)
 
 Backward compatible. Migration runs automatically and idempotently on the next

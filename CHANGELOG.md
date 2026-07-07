@@ -2,6 +2,55 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.6.0 - 2026-07-05
+
+### Added
+
+- Adapted the provider to the Hermes 0.18 (`v2026.7.1`) `MemoryProvider`
+  contract:
+  - `on_session_switch()` now accepts the new `rewound: bool = False`
+    parameter. When `rewound=True` (fired by `/undo`), the prefetch cache
+    entries keyed on the rewound session are evicted so the next recall is
+    assembled against the shortened transcript rather than a stale cached
+    result. The existing `reset=True` path (`/new`, `/reset`) also benefits:
+    when `parent_session_id` is supplied, the old session's cached recall is
+    now correctly dropped instead of lingering in memory.
+  - `backup_paths()` returns an explicit empty list. All provider state
+    (SQLite, LanceDB, config) lives under `HERMES_HOME`, so there is nothing
+    external to declare; the explicit override documents the invariant and
+    makes it testable.
+- New tests cover the rewound invalidation path, the reset-with-parent
+  cache drop, the `backup_paths()` contract, and the synchronous
+  consolidation semantics.
+
+### Changed
+
+- `sync_turn()` now runs `consolidate_turn()` synchronously instead of
+  dispatching it to the internal background pool. Hermes 0.18 invokes
+  `sync_turn` on a background worker inside `MemoryManager` already, so the
+  second layer of backgrounding was redundant and prevented the manager's
+  `flush_pending()` barrier from capturing the full write (episodic +
+  promotion). The episodic insert and durable promotion are now both
+  committed before `sync_turn()` returns.
+- `on_session_end()` and `on_memory_write()` still use the internal
+  background pool — those hooks are invoked on the caller's thread by the
+  manager, so they must remain non-blocking.
+
+### Migration (0.5.x → 0.6.0)
+
+No schema changes, no index rebuild. The release is a drop-in replacement:
+
+- The new `rewound` parameter on `on_session_switch` has a default value, so
+  the provider continues to work against older Hermes runtimes (they simply
+  never pass it).
+- The synchronous `sync_turn` change is internal behaviour only; callers do
+  not need to adjust.
+
+### Verified
+
+- `ruff check --fix` and `ruff format`
+- `pytest -q` (97 passed)
+
 ## 0.5.0 - 2026-06-26
 
 ### Added

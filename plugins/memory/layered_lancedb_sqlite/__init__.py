@@ -200,8 +200,13 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         )
         if session_id and session_id != self._runtime.session_id:
             return
-        self._background.submit(
-            consolidate_turn,
+        # Hermes >=0.18 invokes ``sync_turn`` on a background worker inside
+        # ``MemoryManager``, so the call is already off the turn-completion
+        # path. Running ``consolidate_turn`` synchronously here avoids a
+        # redundant layer of backgrounding and lets the manager's
+        # ``flush_pending()`` barrier capture the full write (episodic +
+        # promotion) rather than only the episodic piece.
+        consolidate_turn(
             store=store,
             config=self._config,
             namespace=namespace,
@@ -215,6 +220,7 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         *,
         parent_session_id: str = "",
         reset: bool = False,
+        rewound: bool = False,
         **kwargs,
     ) -> None:
         self._background.drain(timeout=5)
@@ -243,11 +249,19 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         }
         self._runtime = runtime_from_kwargs(new_session_id, **merged)
         self._namespace = resolve_namespace(self._config, self._runtime)
-        if reset:
+        # ``reset`` fires on /reset, /new — genuinely new conversation; drop the
+        # old session's cached recall so it cannot leak into the fresh turn.
+        # ``rewound`` fires on /undo — session_id is unchanged but the
+        # transcript was truncated, so any cached recall keyed on the old
+        # messages is stale and must be dropped too. Both paths use the same
+        # invalidation rule: evict entries whose session slot matches the
+        # session we just left / rewound.
+        if reset or rewound:
+            stale_session = parent_session_id or new_session_id
             self._prefetch_cache = {
                 key: value
                 for key, value in self._prefetch_cache.items()
-                if key[2] != new_session_id
+                if key[2] != stale_session
             }
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
@@ -300,6 +314,19 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         if self._store is not None:
             self._store.close()
             self._store = None
+
+    def backup_paths(self) -> List[str]:
+        """All provider state lives under HERMES_HOME.
+
+        ``hermes backup`` walks HERMES_HOME and captures everything there;
+        this plugin keeps SQLite, LanceDB, and config under
+        ``<hermes_home>/memory-providers/layered_lancedb_sqlite/``, so there
+        is nothing external to declare. Returning an explicit empty list
+        (rather than inheriting the base default) documents that invariant
+        and shields us from accidental drift — if future work introduces an
+        out-of-tree cache or sidecar, it must be added here.
+        """
+        return []
 
     def post_setup(self, hermes_home: str, config: Dict[str, Any]) -> None:
         self.save_config(config, hermes_home)

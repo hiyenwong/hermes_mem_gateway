@@ -188,6 +188,30 @@ separate from per-user maintenance.
 
 ## Upgrading
 
+### 0.6.0 → 0.6.1 (Hermes 0.19 verification)
+
+Drop-in replacement — no schema migration, no index rebuild, no config change.
+Compatible with Hermes 0.18–0.19.
+
+- Hermes 0.19 defers the `/new` session boundary (`on_session_end` +
+  `on_session_switch(reset=True)`) to a single background task instead of
+  running it inline, so the host may briefly call `prefetch()`/`sync_turn()`
+  with the new session id before this provider's own `on_session_switch` has
+  run. Episodic scope already follows the explicit `session_id` passed on
+  each call, so this window does not leak stale episodic content across the
+  session boundary; this is now covered by a regression test.
+- Hermes 0.19 bounds its own shutdown drain to 5 seconds and reports
+  anything still outstanding past that as abandoned. The provider's internal
+  `on_session_switch`/`shutdown()` drain timeouts were lowered from 5s to 3s
+  so a teardown sequence that calls both back-to-back does not, by itself,
+  consume the host's entire drain budget.
+- Hermes 0.19 no longer reads `HERMES_EXTERNAL_MEMORY_PREFETCH_TIMEOUT`; the
+  host's external-provider prefetch timeout is now a fixed 8-second constant.
+  This provider never read that variable, so no config change is required —
+  but operators relying on a cold-start LanceDB index rebuild completing
+  inside a `prefetch()` call should note the 8s ceiling is no longer
+  operator-tunable from the host side.
+
 ### 0.5.x → 0.6.0 (Hermes 0.18 adaptation)
 
 Drop-in replacement — no schema migration, no index rebuild, no config change.

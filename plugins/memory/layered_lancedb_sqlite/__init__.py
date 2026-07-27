@@ -25,6 +25,14 @@ except Exception:  # pragma: no cover
         pass
 
 
+# Hermes 0.19's MemoryManager bounds its own shutdown drain to 5 seconds
+# (``_SYNC_DRAIN_TIMEOUT_S``); each of these must leave headroom under that
+# budget even when both fire in the same teardown sequence (session-switch
+# immediately followed by shutdown, as on ``/new``).
+_SESSION_SWITCH_DRAIN_TIMEOUT_S = 3.0
+_SHUTDOWN_DRAIN_TIMEOUT_S = 3.0
+
+
 class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
     def __init__(self) -> None:
         self._hermes_home = ""
@@ -223,7 +231,14 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         rewound: bool = False,
         **kwargs,
     ) -> None:
-        self._background.drain(timeout=5)
+        # Hermes 0.19 bounds its own shutdown drain to 5s
+        # (``MemoryManager._SYNC_DRAIN_TIMEOUT_S``) and reports anything
+        # still outstanding past that as abandoned. A teardown sequence can
+        # call ``on_session_switch`` immediately followed by ``shutdown()``;
+        # if both drained at 5s each, our own draining alone could consume
+        # the host's entire budget. Use a smaller timeout here so normal-
+        # speed local writes still complete comfortably inside that window.
+        self._background.drain(timeout=_SESSION_SWITCH_DRAIN_TIMEOUT_S)
         merged = {
             "platform": kwargs.get("platform", self._runtime.platform),
             "agent_context": kwargs.get("agent_context", self._runtime.agent_context),
@@ -309,7 +324,9 @@ class LayeredLanceDBSQLiteMemoryProvider(MemoryProvider):
         )
 
     def shutdown(self) -> None:
-        self._background.drain(timeout=5)
+        # See the comment in ``on_session_switch`` — kept under the host's
+        # 5s shutdown drain budget even when both drains fire back-to-back.
+        self._background.drain(timeout=_SHUTDOWN_DRAIN_TIMEOUT_S)
         self._background.shutdown()
         if self._store is not None:
             self._store.close()

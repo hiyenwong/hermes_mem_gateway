@@ -6,7 +6,7 @@ stub)提供语义索引。唯一插件为 `layered_lancedb_sqlite`。完整记�
 
 ## 版本号管理
 
-- **当前版本:`0.6.0`**
+- **当前版本:`0.6.1`**
 - 采用语义化版本 [SemVer](https://semver.org/lang/zh-CN/) `MAJOR.MINOR.PATCH`:
   - `MAJOR` — 不兼容的存储格式 / 隔离语义 / 接口变更(需手动且不向后兼容的迁移)
   - `MINOR` — 向后兼容的新能力(新 header、新字段、新 CLI 命令、新配置项)

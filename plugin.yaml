@@ -1,5 +1,6 @@
 name: layered_lancedb_sqlite
 kind: standalone
+version: 0.6.1
 description: Layered SQLite + LanceDB memory provider with workspace, user, and session isolation.
 hooks:
   - prefetch

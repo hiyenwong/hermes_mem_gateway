@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.6.1 - 2026-07-25
+
+### Fixed
+
+- Verified compatibility with Hermes 0.19 (`v2026.7.20`)'s `MemoryManager`
+  changes. `agent/memory_provider.py` (the `MemoryProvider` contract) is
+  unchanged between Hermes 0.18 and 0.19, so no interface migration was
+  needed; the following two behavior-level adjustments were made:
+  - Lowered the internal `_background.drain(...)` timeout in
+    `on_session_switch()` and `shutdown()` from 5s to 3s. Hermes 0.19 bounds
+    its own shutdown drain to 5 seconds and reports anything still
+    outstanding past that as abandoned; a teardown sequence that calls both
+    hooks back-to-back (as after `/new`) could otherwise consume the host's
+    entire drain budget on this provider's internal draining alone.
+  - Added a regression test asserting that `prefetch()`/`sync_turn()` called
+    with a new session id during Hermes 0.19's deferred `/new` boundary
+    window (before the host's `commit_session_boundary_async` task has run)
+    correctly scopes episodic content to the new session id, with no leakage
+    from the previous session's cached recall.
+- Added `version` to `plugin.yaml` and documented Hermes 0.18-0.19
+  compatibility (including the host's prefetch timeout now being a fixed 8s
+  constant, previously configurable via
+  `HERMES_EXTERNAL_MEMORY_PREFETCH_TIMEOUT`) in `README.md`.
+
+No schema migration, index rebuild, or config change required — drop-in
+upgrade.
+
 ## 0.6.0 - 2026-07-05
 
 ### Added

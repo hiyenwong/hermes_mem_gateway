@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 from plugins.memory.layered_lancedb_sqlite import LayeredLanceDBSQLiteMemoryProvider
@@ -524,3 +525,98 @@ def test_sync_turn_promotes_durable_memory_synchronously(tmp_path: Path) -> None
         ).fetchall()
     provider.shutdown()
     assert any("badge number is 4242" in row[1] for row in rows)
+
+
+def test_prefetch_targets_new_session_during_deferred_boundary_window(
+    tmp_path: Path,
+) -> None:
+    """Episodic scope must follow the new session id before ``on_session_switch`` lands.
+
+    Hermes 0.19's ``MemoryManager.commit_session_boundary_async`` defers
+    ``on_session_end`` + ``on_session_switch(reset=True)`` to a single task on
+    its background worker instead of running them inline during ``/new``.
+    Between the host returning from ``/new`` and that task executing, the
+    host may already call ``prefetch()``/``sync_turn()`` with the *new*
+    session id while this provider's own ``on_session_switch`` has not yet
+    fired. ``_active_namespace`` must still resolve episodic scope from the
+    caller-supplied ``session_id`` in that window, so no content from the
+    old session leaks into the new session's recall.
+    """
+    provider = build_provider(tmp_path, platform="cli", session_id="session-old")
+    # "currently" is a transient-content marker (see governance.TRANSIENT_RE)
+    # so this stays purely episodic — it is never promoted to the
+    # cross-session workspace-shared semantic layer, isolating the leakage
+    # this test checks for to the episodic scope alone.
+    provider.sync_turn(
+        "The team is currently targeting a release around March 3rd.", "Noted."
+    )
+    provider.prefetch("release")  # warm the old session's own cache
+
+    # Simulate the deferred boundary window: the host already routes a call
+    # for the new session id, but on_session_switch has not run yet.
+    recall_new_session = provider.prefetch("release", session_id="session-new")
+    assert "March 3rd" not in recall_new_session
+
+    provider.sync_turn(
+        "The team is currently targeting a kickoff around April 1st.",
+        "Noted.",
+        session_id="session-new",
+    )
+    recall_new_session_again = provider.prefetch("kickoff", session_id="session-new")
+    assert "April 1st" in recall_new_session_again
+
+    # The cache entry for the new session must be keyed on the new session
+    # id, and none of the new session's cache entries carry old-session
+    # content.
+    new_session_keys = [
+        key for key in provider._prefetch_cache if key[2] == "session-new"
+    ]
+    assert new_session_keys, "expected a cached recall entry for session-new"
+    assert all(
+        "March 3rd" not in provider._prefetch_cache[key] for key in new_session_keys
+    )
+    provider.shutdown()
+
+
+def test_session_switch_then_shutdown_drains_within_host_budget(
+    tmp_path: Path,
+) -> None:
+    """Combined on_session_switch + shutdown draining must stay under the host's 5s budget.
+
+    Hermes 0.19 bounds its own shutdown drain to 5 seconds
+    (``MemoryManager._SYNC_DRAIN_TIMEOUT_S``) and reports anything still
+    outstanding past that as abandoned. This provider's ``on_session_switch``
+    and ``shutdown()`` each drain their own background queue; a teardown
+    sequence that calls both back-to-back (as after ``/new``) must not
+    consume the entire host budget on our side alone.
+    """
+    provider = build_provider(tmp_path, platform="cli")
+    provider.on_memory_write("add", "memory", "quick note before teardown", {})
+
+    start = time.monotonic()
+    provider.on_session_switch("session-2", reset=True, platform="cli")
+    provider.shutdown()
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 5.0
+
+
+def test_shutdown_still_fully_drains_pending_writes(tmp_path: Path) -> None:
+    """Lowering the drain timeout must not drop pending writes under normal conditions.
+
+    The drain timeout was tightened from 5s to leave headroom under the
+    host's shutdown budget (see design rationale in the 0.19 compat change).
+    A same-process local write is fast; ``shutdown()`` must still wait for it
+    and commit it before returning.
+    """
+    provider = build_provider(tmp_path, platform="cli")
+    provider.on_memory_write(
+        "add", "memory", "The staging deploy key rotates monthly.", {}
+    )
+    provider.shutdown()
+
+    reopened = build_provider(tmp_path, platform="cli")
+    validate = reopened.validate_storage()
+    assert validate["memory_count"] >= 1
+    assert validate["background_error_count"] == 0
+    reopened.shutdown()

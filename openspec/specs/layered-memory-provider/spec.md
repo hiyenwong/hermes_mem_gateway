@@ -37,15 +37,19 @@ The system SHALL maintain separate durable semantic layers for gateway user memo
 - **THEN** the provider stores the durable record in the workspace shared semantic layer
 
 ### Requirement: Provider SHALL keep post-turn synchronization non-blocking
-The system SHALL ensure that Hermes post-turn synchronization remains non-blocking even when memory extraction, embedding, or indexing work is required.
+The system SHALL schedule expensive memory synchronization work off the request-completion path so end-user latency is not affected by durable storage operations. Provider-side draining of that deferred work during session switches and shutdown SHALL complete within the host's shutdown drain budget (Hermes 0.19's `MemoryManager` bounds this to 5 seconds), so in-flight writes are not misreported as abandoned when they would otherwise have completed.
 
 #### Scenario: Turn synchronization schedules deferred work
-- **WHEN** a completed turn must be consolidated or indexed
-- **THEN** the provider persists or enqueues the minimum durable turn record immediately and performs heavier work asynchronously
+- **WHEN** a turn completes
+- **THEN** the provider enqueues heavier synchronization work rather than performing it inline on the response path
 
 #### Scenario: Session-end extraction is not required for correctness
-- **WHEN** a gateway session ends without a reliable session-end callback
-- **THEN** the durable turn history already stored by the provider remains sufficient to preserve memory correctness
+- **WHEN** session-end extraction has not yet run
+- **THEN** durable memory correctness for already-synced turns is unaffected
+
+#### Scenario: Provider drains within the host's shutdown budget
+- **WHEN** the host tears down the provider via `on_session_switch` followed by `shutdown()` in the same session-boundary sequence
+- **THEN** the provider's combined internal drain wait completes with headroom under the host's 5-second shutdown drain budget, so outstanding writes are not falsely reported as abandoned
 
 ### Requirement: Provider SHALL inject minimal gateway user context into prompts without exposing raw headers
 The system SHALL inject a minimal gateway user context block for OpenWebUI-derived requests that communicates user display context and privacy scope without exposing raw transport headers.

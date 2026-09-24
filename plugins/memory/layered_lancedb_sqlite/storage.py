@@ -6,11 +6,11 @@ import math
 import sqlite3
 import threading
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
-
+from typing import Any
 
 EMBEDDER_VERSION = "blake2b-counts-v2"
 EMBEDDER_STATE_KEY = "embedder_state"

@@ -14,7 +14,6 @@ from plugins.memory.layered_lancedb_sqlite.identity_sidecar import (
 )
 from plugins.memory.layered_lancedb_sqlite.namespace import runtime_from_kwargs
 
-
 # ---------------------------------------------------------------------------
 # identity_sidecar unit tests
 # ---------------------------------------------------------------------------

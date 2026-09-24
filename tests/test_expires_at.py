@@ -18,7 +18,6 @@ import pytest
 
 from plugins.memory.layered_lancedb_sqlite.storage import SQLiteStore
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

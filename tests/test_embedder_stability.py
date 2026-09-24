@@ -19,7 +19,6 @@ from plugins.memory.layered_lancedb_sqlite.storage import (
     embed_text,
 )
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 

@@ -10,7 +10,6 @@ from .namespace import NamespaceContext, resolve_namespace, runtime_from_kwargs
 from .policy import maintenance_user_write_decision
 from .storage import SQLiteStore
 
-
 OPERATION_DAILY_COMPACTION = "daily_compaction"
 
 

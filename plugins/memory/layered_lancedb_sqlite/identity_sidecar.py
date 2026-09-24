@@ -6,7 +6,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 _ENV_DIR = "LAYERED_MEMORY_IDENTITY_SIDECAR_DIR"
 _ENV_TTL = "LAYERED_MEMORY_IDENTITY_SIDECAR_TTL_HOURS"
 _DEFAULT_TTL_HOURS = 24

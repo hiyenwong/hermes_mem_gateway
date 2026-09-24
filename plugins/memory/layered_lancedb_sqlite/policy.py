@@ -6,12 +6,11 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from .config import ProviderConfig
-from .namespace import NamespaceContext, SHARED_PRINCIPAL
-
+from .namespace import SHARED_PRINCIPAL, NamespaceContext
 
 SHARED_MEMORY_RE = re.compile(
     r"(?:\b(?:remember this as shared|save this to shared memory|share this memory)\b|保存为共享记忆|记到共享记忆里)",
-    re.I,
+    re.IGNORECASE,
 )
 
 MemoryLayer = Literal["episodic", "semantic_user", "semantic_shared"]

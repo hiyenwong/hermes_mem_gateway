@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict
 
 import yaml
-
 
 CONFIG_DIRNAME = "memory-providers/layered_lancedb_sqlite"
 CONFIG_FILENAME = "config.yaml"
@@ -50,7 +50,7 @@ class ProviderConfig:
     default_ttl_hours: int = 0
 
     @classmethod
-    def from_mapping(cls, values: Dict[str, Any] | None) -> "ProviderConfig":
+    def from_mapping(cls, values: Dict[str, Any] | None) -> ProviderConfig:
         values = values or {}
         accepted = {field.name for field in cls.__dataclass_fields__.values()}  # type: ignore[attr-defined]
         filtered = {key: value for key, value in values.items() if key in accepted}

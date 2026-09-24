@@ -7,7 +7,6 @@ from typing import Any
 from .config import ProviderConfig
 from .identity_sidecar import read_identity as _read_sidecar
 
-
 SHARED_PRINCIPAL = "__shared__"
 DEFAULT_PLATFORM = "cli"
 # Header keys MUST be all lowercase: incoming headers are canonicalized via

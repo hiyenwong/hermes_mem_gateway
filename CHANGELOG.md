@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## 0.6.1 - 2026-07-25
 
+### Verified
+
+- **Hermes 0.20-0.21 compatibility confirmed** (verified against v2026.9.21, released 2026-09-21).
+  Static code analysis of the `MemoryProvider` interface in Hermes 0.21.4 shows:
+  - `sync_turn()` added optional `messages` and `turn_author` parameters (keyword-only).
+    Hermes uses `_provider_sync_accepts()` to introspect provider signatures and only
+    passes parameters the provider accepts, so this is fully backward compatible — no
+    code changes needed in this provider.
+  - New optional methods (`recall_status()`, `identity_signature()`, `on_delegation()`)
+    are available but not required; can be adopted in future versions for enhanced functionality.
+  - Behavioral changes (completed-turn context in v0.20.2, session store refactor in v0.21.1-0.21.3)
+    do not affect this provider, which uses independent storage and does not rely on the
+    `messages` parameter.
+  - Drain timeout (3s) remains well within Hermes 0.19+'s 5s shutdown budget.
+- **Version availability note**: PyPI's latest `hermes-agent` is 0.19.0; GitHub releases
+  go up to 0.21.4. This provider is compatible with both installation sources.
+- Updated documentation: `CLAUDE.md` compatibility section updated to "Hermes 0.18-0.21";
+  `README.md` added "0.6.1 — Hermes 0.20-0.21 Compatibility Verified" section.
+
 ### Fixed
 
 - Verified compatibility with Hermes 0.19 (`v2026.7.20`)'s `MemoryManager`

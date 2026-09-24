@@ -188,6 +188,19 @@ separate from per-user maintenance.
 
 ## Upgrading
 
+### 0.6.1 — Hermes 0.20-0.21 Compatibility Verified
+
+**No code changes required.** Drop-in compatible with Hermes 0.18-0.21 (verified against v2026.9.21).
+
+- **Hermes 0.21.4 (v2026.9.21) compatibility confirmed** via static code analysis.
+- **MemoryProvider interface changes**: Hermes 0.20+ added optional `messages` and `turn_author` parameters to `sync_turn()`. The provider does not implement these, and Hermes automatically detects this via signature introspection (`_provider_sync_accepts()`), so they are not passed — fully backward compatible.
+- **New optional methods**: `recall_status()`, `identity_signature()`, `on_delegation()` are available in 0.21+ but not required. The provider can adopt them in future versions for enhanced functionality.
+- **Behavioral changes**: Hermes 0.20.2's "completed-turn context" (full message list in `sync_turn`) does not affect this provider, which uses only `user` and `assistant` content.
+- **Session store refactor**: Hermes 0.21.1-0.21.3's `state.db` connection handling improvements do not affect this provider, which uses its own SQLite storage.
+- **Drain timeout**: 3s timeout remains well within Hermes 0.19+'s 5s shutdown budget.
+
+**Note on version availability**: PyPI's latest `hermes-agent` is 0.19.0; GitHub releases go up to 0.21.4 (v2026.9.21). This provider is compatible with both.
+
 ### 0.6.0 → 0.6.1 (Hermes 0.19 verification)
 
 Drop-in replacement — no schema migration, no index rebuild, no config change.
